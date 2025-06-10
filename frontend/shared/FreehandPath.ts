@@ -1,18 +1,10 @@
 import WindowViewer from "./WindowViewer";
 import { setAlpha } from "./utils";
-const clamp = (num: number, min: number, max: number) => Math.min(Math.max(num, min), max)
 
-
-export default class Box {
+export default class FreehandPath {
     label: string;
-    xmin: number;
-    ymin: number;
-    xmax: number;
-    ymax: number;
-    _xmin: number;
-    _ymin: number;
-    _xmax: number;
-    _ymax: number;
+    points: Array<{x: number, y: number}>;
+    _points: Array<{x: number, y: number}>; // Normalized points
     color: string;
     alpha: number;
     isDragging: boolean;
@@ -31,8 +23,7 @@ export default class Box {
     canvasXmax: number;
     canvasYmax: number;
     scaleFactor: number;
-    thickness: number;
-    selectedThickness: number;
+    thickness: number;    selectedThickness: number;
     creatingAnchorX: string;
     creatingAnchorY: string;
     resizeHandles: {
@@ -43,6 +34,15 @@ export default class Box {
         cursor: string;
     }[];
     canvasWindow: WindowViewer;
+    // Bounding box properties for compatibility
+    xmin: number;
+    ymin: number;
+    xmax: number;
+    ymax: number;
+    _xmin: number;
+    _ymin: number;
+    _xmax: number;
+    _ymax: number;
 
     constructor(
         renderCallBack: () => void,
@@ -53,10 +53,6 @@ export default class Box {
         canvasXmax: number,
         canvasYmax: number,
         label: string,
-        xmin: number,
-        ymin: number,
-        xmax: number,
-        ymax: number,
         color: string = "rgb(255, 255, 255)",
         alpha: number = 0.5,
         minSize: number = 25,
@@ -76,14 +72,8 @@ export default class Box {
         this.label = label;
         this.isDragging = false;
         this.isCreating = false;
-        this._xmin = xmin;
-        this._ymin = ymin;
-        this._xmax = xmax;
-        this._ymax = ymax;
-        this.xmin = this._xmin * this.canvasWindow.scale;
-        this.ymin = this._ymin * this.canvasWindow.scale;
-        this.xmax = this._xmax * this.canvasWindow.scale;
-        this.ymax = this._ymax * this.canvasWindow.scale;
+        this.points = [];
+        this._points = [];
         this.isResizing = false;
         this.isSelected = false;
         this.offsetMouseX = 0;
@@ -91,40 +81,60 @@ export default class Box {
         this.resizeHandleSize = handleSize;
         this.thickness = thickness;
         this.selectedThickness = selectedThickness;
-        this.updateHandles();
         this.resizingHandleIndex = -1;
-        this.minSize = minSize;
-        this.color = color;
+        this.minSize = minSize;        this.color = color;
         this.alpha = alpha;
+        this.resizeHandles = [];
         this.creatingAnchorX = "xmin";
         this.creatingAnchorY = "ymin";
+        
+        // Initialize bounding box properties
+        this.xmin = 0;
+        this.ymin = 0;
+        this.xmax = 0;
+        this.ymax = 0;
+        this._xmin = 0;
+        this._ymin = 0;
+        this._xmax = 0;
+        this._ymax = 0;
     }
 
     toJSON() {
         return {
             label: this.label,
-            xmin: this._xmin,
-            ymin: this._ymin,
-            xmax: this._xmax,
-            ymax: this._ymax,
+            points: this._points,
             color: this.color,
             scaleFactor: this.scaleFactor,
+            type: "freehand"
         };
     }
 
-    setSelected(selected: boolean): void{
+    setSelected(selected: boolean): void {
         this.isSelected = selected;
     }
 
     setScaleFactor(scaleFactor: number) {
         let scale = scaleFactor / this.scaleFactor;
-        this._xmin = Math.round(this._xmin * scale);
-        this._ymin = Math.round(this._ymin * scale);
-        this._xmax = Math.round(this._xmax * scale);
-        this._ymax = Math.round(this._ymax * scale);
+        // Scale all points
+        this._points = this._points.map(point => ({
+            x: Math.round(point.x * scale),
+            y: Math.round(point.y * scale)
+        }));
         this.applyUserScale();
-        // this.updateHandles();
+        this.updateBoundingBox();
         this.scaleFactor = scaleFactor;
+    }
+
+    updateBoundingBox(): void {
+        if (this._points.length === 0) return;
+        
+        this._xmin = Math.min(...this._points.map(p => p.x));
+        this._ymin = Math.min(...this._points.map(p => p.y));
+        this._xmax = Math.max(...this._points.map(p => p.x));
+        this._ymax = Math.max(...this._points.map(p => p.y));
+        
+        this.applyUserScale();
+        this.updateHandles();
     }
 
     updateHandles(): void {
@@ -208,7 +218,7 @@ export default class Box {
     }
 
     getArea(): number {
-        return this.getWidth() * this.getHeight();
+        return this._points.length > 0 ? this.getWidth() * this.getHeight() : 0;
     }
 
     toCanvasCoordinates(x: number, y: number): [number, number] {
@@ -224,11 +234,18 @@ export default class Box {
     }
 
     applyUserScale(): void {
-        this.xmin = this._xmin * this.canvasWindow.scale;
-        this.ymin = this._ymin * this.canvasWindow.scale;
-        this.xmax = this._xmax * this.canvasWindow.scale;
-        this.ymax = this._ymax * this.canvasWindow.scale;
-        this.updateHandles();
+        this.points = this._points.map(point => ({
+            x: point.x * this.canvasWindow.scale,
+            y: point.y * this.canvasWindow.scale
+        }));
+        
+        if (this._points.length > 0) {
+            this.xmin = this._xmin * this.canvasWindow.scale;
+            this.ymin = this._ymin * this.canvasWindow.scale;
+            this.xmax = this._xmax * this.canvasWindow.scale;
+            this.ymax = this._ymax * this.canvasWindow.scale;
+            this.updateHandles();
+        }
     }
 
     updateOffset(): void {
@@ -237,29 +254,35 @@ export default class Box {
         this.canvasXmax = this.canvasWindow.offsetX + this.canvasWindow.imageWidth * this.canvasWindow.scale;
         this.canvasYmax = this.canvasWindow.offsetY + this.canvasWindow.imageHeight * this.canvasWindow.scale;
         this.applyUserScale();
-    }
-    render(ctx: CanvasRenderingContext2D): void {
-        let xmin: number, ymin: number;
+    }    render(ctx: CanvasRenderingContext2D): void {
+        if (this.points.length === 0) return;
 
-        this.updateOffset()
-        // Render the box and border
+        this.updateOffset();
+        
+        // Draw and fill the freehand path
         ctx.beginPath();
-        [xmin, ymin] = this.toCanvasCoordinates(this.xmin, this.ymin);
-        ctx.rect(xmin, ymin, this.getWidth(), this.getHeight());
+        for (let i = 0; i < this.points.length; i++) {
+            const [x, y] = this.toCanvasCoordinates(this.points[i].x, this.points[i].y);
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        }
+        // Close the path for filling
+        ctx.closePath();
+        
+        // Fill the path with color and alpha (like rectangles)
         ctx.fillStyle = setAlpha(this.color, this.alpha);
         ctx.fill();
-        if (this.isSelected) {
-            ctx.lineWidth = this.selectedThickness;
-        } else {
-            ctx.lineWidth = this.thickness;
-        }
-        ctx.strokeStyle = setAlpha(this.color, 1);
         
-        ctx.stroke();
-        ctx.closePath();
-
-        // Render the label and background
-        if (this.label !== null && this.label.trim() !== ""){
+        // Draw the border
+        ctx.lineWidth = this.isSelected ? this.selectedThickness : this.thickness;
+        ctx.strokeStyle = setAlpha(this.color, 1);
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.stroke();// Render the label and background
+        if (this.label !== null && this.label.trim() !== "") {
             if (this.isSelected) {
                 ctx.font = "bold 14px Arial";
             } else {
@@ -279,16 +302,18 @@ export default class Box {
             ctx.fillText(this.label, labelX + 5, labelY + 15);
         }
 
-        // Render the handles
-        ctx.fillStyle = setAlpha(this.color, 1);
-        for (const handle of this.resizeHandles) {
-            [xmin, ymin] = this.toCanvasCoordinates(handle.xmin, handle.ymin);
-            ctx.fillRect(
-                xmin,
-                ymin,
-                handle.xmax - handle.xmin,
-                handle.ymax - handle.ymin,
-            );
+        // Render the handles if selected
+        if (this.isSelected) {
+            ctx.fillStyle = setAlpha(this.color, 1);
+            for (const handle of this.resizeHandles) {
+                const [xmin, ymin] = this.toCanvasCoordinates(handle.xmin, handle.ymin);
+                ctx.fillRect(
+                    xmin,
+                    ymin,
+                    handle.xmax - handle.xmin,
+                    handle.ymax - handle.ymin,
+                );
+            }
         }
     }
 
@@ -307,21 +332,22 @@ export default class Box {
     };
 
     handleDrag = (event: MouseEvent): void => {
-        if (this.isDragging) {
+        if (this.isDragging && this._points.length > 0) {
             let deltaX = (event.clientX - this.offsetMouseX) / this.canvasWindow.scale - this._xmin;
             let deltaY = (event.clientY - this.offsetMouseY) / this.canvasWindow.scale - this._ymin;
 
             const canvasW = (this.canvasXmax - this.canvasXmin) / this.canvasWindow.scale;
             const canvasH = (this.canvasYmax - this.canvasYmin) / this.canvasWindow.scale;
-            deltaX = clamp(deltaX, -this._xmin, canvasW-this._xmax);
-            deltaY = clamp(deltaY, -this._ymin, canvasH-this._ymax);
-            this._xmin += deltaX;
-            this._ymin += deltaY;
-            this._xmax += deltaX;
-            this._ymax += deltaY;
+            deltaX = Math.max(-this._xmin, Math.min(deltaX, canvasW - this._xmax));
+            deltaY = Math.max(-this._ymin, Math.min(deltaY, canvasH - this._ymax));
 
-            this.applyUserScale();
-            // this.updateHandles();
+            // Move all points
+            this._points = this._points.map(point => ({
+                x: point.x + deltaX,
+                y: point.y + deltaY
+            }));
+
+            this.updateBoundingBox();
             this.renderCallBack();
         }
     };
@@ -351,112 +377,71 @@ export default class Box {
             }
         }
         return -1;
-    }
-
-    startCreating(event: MouseEvent, canvasX: number, canvasY: number): void {
+    }    startCreating(event: MouseEvent, canvasX: number, canvasY: number): void {
         this.isCreating = true;
-        this.offsetMouseX = canvasX;
-        this.offsetMouseY = canvasY;
+        const canvas = document.querySelector('canvas');
+        if (canvas) {
+            const rect = canvas.getBoundingClientRect();
+            const x = (event.clientX - rect.left - this.canvasWindow.offsetX) / this.canvasWindow.scale;
+            const y = (event.clientY - rect.top - this.canvasWindow.offsetY) / this.canvasWindow.scale;
+            
+            this._points = [{x, y}];
+            this.applyUserScale();
+            this.updateBoundingBox();
+        }
+        
         document.addEventListener("pointermove", this.handleCreating);
         document.addEventListener("pointerup", this.stopCreating);
-    }
-
-    handleCreating = (event: MouseEvent): void => {
+    }    handleCreating = (event: MouseEvent): void => {
         if (this.isCreating) {
-            let [x, y] = this.toBoxCoordinates(event.clientX, event.clientY);
-            x = (x - this.offsetMouseX) / this.canvasWindow.scale;
-            y = (y - this.offsetMouseY) / this.canvasWindow.scale;
-
-            if (x > this._xmax) {
-                if (this.creatingAnchorX == "xmax") {
-                    this._xmin = this._xmax;
+            const canvas = document.querySelector('canvas');
+            if (canvas) {
+                const rect = canvas.getBoundingClientRect();
+                const x = (event.clientX - rect.left - this.canvasWindow.offsetX) / this.canvasWindow.scale;
+                const y = (event.clientY - rect.top - this.canvasWindow.offsetY) / this.canvasWindow.scale;
+                
+                // Add point if it's far enough from the last point (smooth drawing)
+                const lastPoint = this._points[this._points.length - 1];
+                const distance = Math.sqrt(Math.pow(x - lastPoint.x, 2) + Math.pow(y - lastPoint.y, 2));
+                if (distance > 2) { // Minimum distance between points
+                    this._points.push({x, y});
+                    this.applyUserScale();
+                    this.updateBoundingBox();
+                    this.renderCallBack();
                 }
-                this._xmax = x;
-                this.creatingAnchorX = "xmin";
-            } else if (x > this._xmin && x < this._xmax && this.creatingAnchorX == "xmin") {
-                this._xmax = x;
-            } else if (x > this._xmin && x < this._xmax && this.creatingAnchorX == "xmax") {
-                this._xmin = x;
-            } else if (x < this._xmin) {
-                if (this.creatingAnchorX == "xmin") {
-                    this._xmax = this._xmin;
-                }
-                this._xmin = x;
-                this.creatingAnchorX = "xmax";
             }
-
-            if (y > this._ymax) {
-                if (this.creatingAnchorY == "ymax") {
-                    this._ymin = this._ymax;
-                }
-                this._ymax = y;
-                this.creatingAnchorY = "ymin";
-            } else if (y > this._ymin && y < this._ymax && this.creatingAnchorY == "ymin") {
-                this._ymax = y;
-            } else if (y > this._ymin && y < this._ymax && this.creatingAnchorY == "ymax") {
-                this._ymin = y;
-            } else if (y < this._ymin) {
-                if (this.creatingAnchorY == "ymin") {
-                    this._ymax = this._ymin;
-                }
-                this._ymin = y;
-                this.creatingAnchorY = "ymax";
-            }
-            this.applyUserScale();
-            // this.updateHandles();
-            this.renderCallBack();
         }
-    }
-    
+    };
+
     stopCreating = (event: MouseEvent): void => {
         this.isCreating = false;
         document.removeEventListener("pointermove", this.handleCreating);
-        document.removeEventListener("pointerup", this.stopCreating);
-
-        if (this.getArea() > 0) {
+        document.removeEventListener("pointerup", this.stopCreating);        if (this._points.length > 1) {
+            this.updateBoundingBox();
             const canvasW = (this.canvasXmax - this.canvasXmin) / this.canvasWindow.scale;
             const canvasH = (this.canvasYmax - this.canvasYmin) / this.canvasWindow.scale;
-            this._xmin = clamp(this._xmin, 0, canvasW - this.minSize);
-            this._ymin = clamp(this._ymin, 0, canvasH - this.minSize);
-            this._xmax = clamp(this._xmax, this.minSize, canvasW);
-            this._ymax = clamp(this._ymax, this.minSize, canvasH);
-
-            if (this.minSize > 0) {
-                if (this.getWidth() / this.canvasWindow.scale < this.minSize) {
-                    if (this.creatingAnchorX == "xmin") {
-                        this._xmax = this._xmin + this.minSize;
-                    } else {
-                        this._xmin = this._xmax - this.minSize;
-                    }
-                }
-                if (this.getHeight() / this.canvasWindow.scale < this.minSize) {
-                    if (this.creatingAnchorY == "ymin") {
-                        this._ymax = this._ymin + this.minSize;
-                    } else {
-                        this._ymin = this._ymax - this.minSize;
-                    }
-                }
-                if (this._xmax > canvasW) {
-                    this._xmin -= this._xmax - canvasW;
-                    this._xmax = canvasW;
-                } else if (this._xmin < 0) {
-                    this._xmax -= this._xmin;
-                    this._xmin = 0;
-                }
-                if (this._ymax > canvasH) {
-                    this._ymin -= this._ymax - canvasH;
-                    this._ymax = canvasH;
-                } else if (this._ymin < 0) {
-                    this._ymax -= this._ymin;
-                    this._ymin = 0;
-                }
-            }
-            this.applyUserScale();
-            // this.updateHandles();
+            
+            // Ensure path is within canvas bounds
+            this._points = this._points.map(point => ({
+                x: Math.max(0, Math.min(point.x, canvasW)),
+                y: Math.max(0, Math.min(point.y, canvasH))
+            }));
+            
+            this.updateBoundingBox();
             this.renderCallBack();
+            
+            // Print coordinates of the hand-drawn path
+            console.log("Freehand path coordinates:", this._points);
+            console.log("Number of points:", this._points.length);
+            console.log("Bounding box:", {
+                xmin: this._xmin,
+                ymin: this._ymin,
+                xmax: this._xmax,
+                ymax: this._ymax
+            });
         }
         this.onFinishCreation();
-    }
+    };
 
     startResize(handleIndex: number, event: MouseEvent): void {
         this.resizingHandleIndex = handleIndex;
@@ -468,59 +453,61 @@ export default class Box {
     }
 
     handleResize = (event: MouseEvent): void => {
-        if (this.isResizing) {
+        if (this.isResizing && this._points.length > 0) {
             const mouseX = event.clientX;
             const mouseY = event.clientY;
             const deltaX = (mouseX - this.offsetMouseX - this.resizeHandles[this.resizingHandleIndex].xmin) / this.canvasWindow.scale;
             const deltaY = (mouseY - this.offsetMouseY - this.resizeHandles[this.resizingHandleIndex].ymin) / this.canvasWindow.scale;
-            const canvasW = (this.canvasXmax - this.canvasXmin) / this.canvasWindow.scale;
-            const canvasH = (this.canvasYmax - this.canvasYmin) / this.canvasWindow.scale;
+              const oldWidth = this._xmax - this._xmin;
+            const oldHeight = this._ymax - this._ymin;
+            let newXmin = this._xmin;
+            let newYmin = this._ymin;
+            let newXmax = this._xmax;
+            let newYmax = this._ymax;
+
+            // Update bounding box based on handle
             switch (this.resizingHandleIndex) {
-                case 0: // Top-left handle
-                    this._xmin += deltaX;
-                    this._ymin += deltaY;
-                    this._xmin = clamp(this._xmin, 0, this._xmax - this.minSize);
-                    this._ymin = clamp(this._ymin, 0, this._ymax - this.minSize);
+                case 0: // Top-left
+                    newXmin = this._xmin + deltaX;
+                    newYmin = this._ymin + deltaY;
                     break;
-                case 1: // Top-right handle
-                    this._xmax += deltaX;
-                    this._ymin += deltaY;
-                    this._xmax = clamp(this._xmax, this._xmin + this.minSize, canvasW);
-                    this._ymin = clamp(this._ymin, 0, this._ymax - this.minSize);
+                case 1: // Top-right
+                    newXmax = this._xmax + deltaX;
+                    newYmin = this._ymin + deltaY;
                     break;
-                case 2: // Bottom-right handle
-                    this._xmax += deltaX;
-                    this._ymax += deltaY;
-                    this._xmax = clamp(this._xmax, this._xmin + this.minSize, canvasW);
-                    this._ymax = clamp(this._ymax, this._ymin + this.minSize, canvasH);
+                case 2: // Bottom-right
+                    newXmax = this._xmax + deltaX;
+                    newYmax = this._ymax + deltaY;
                     break;
-                case 3: // Bottom-left handle
-                    this._xmin += deltaX;
-                    this._ymax += deltaY;
-                    this._xmin = clamp(this._xmin, 0, this._xmax - this.minSize);
-                    this._ymax = clamp(this._ymax, this._ymin + this.minSize, canvasH);
+                case 3: // Bottom-left
+                    newXmin = this._xmin + deltaX;
+                    newYmax = this._ymax + deltaY;
                     break;
-                case 4: // Top center handle
-                    this._ymin += deltaY;
-                    this._ymin = clamp(this._ymin, 0, this._ymax - this.minSize);
+                case 4: // Top center
+                    newYmin = this._ymin + deltaY;
                     break;
-                case 5: // Right center handle
-                    this._xmax += deltaX;
-                    this._xmax = clamp(this._xmax, this._xmin + this.minSize, canvasW);
+                case 5: // Right center
+                    newXmax = this._xmax + deltaX;
                     break;
-                case 6: // Bottom center handle
-                    this._ymax += deltaY;
-                    this._ymax = clamp(this._ymax, this._ymin + this.minSize, canvasH);
+                case 6: // Bottom center
+                    newYmax = this._ymax + deltaY;
                     break;
-                case 7: // Left center handle
-                    this._xmin += deltaX;
-                    this._xmin = clamp(this._xmin, 0, this._xmax - this.minSize);
+                case 7: // Left center
+                    newXmin = this._xmin + deltaX;
                     break;
             }
 
-            // Update the resize handles
-            this.applyUserScale();
-            // this.updateHandles();
+            // Calculate scale factors
+            const scaleX = (newXmax - newXmin) / oldWidth;
+            const scaleY = (newYmax - newYmin) / oldHeight;
+
+            // Transform all points
+            this._points = this._points.map(point => ({
+                x: newXmin + (point.x - this._xmin) * scaleX,
+                y: newYmin + (point.y - this._ymin) * scaleY
+            }));
+
+            this.updateBoundingBox();
             this.renderCallBack();
         }
     };
@@ -532,21 +519,27 @@ export default class Box {
     };
 
     onRotate(op: number): void {
-        const [_xmin, _xmax, _ymin, _ymax] = [this._xmin, this._xmax, this._ymin, this._ymax];
-        switch (op) {
-            case 1:
-                this._xmin = this.canvasWindow.imageWidth - _ymax;
-                this._xmax = this.canvasWindow.imageWidth - _ymin;
-                this._ymin = _xmin;
-                this._ymax = _xmax;
-                break;
-            case -1:
-                this._xmin = _ymin;
-                this._xmax = _ymax;
-                this._ymin = this.canvasWindow.imageHeight - _xmax;
-                this._ymax = this.canvasWindow.imageHeight - _xmin;
-                break;
-        }
+        if (this._points.length === 0) return;
+        
+        const rotatedPoints = this._points.map(point => {
+            switch (op) {
+                case 1: // Clockwise
+                    return {
+                        x: this.canvasWindow.imageWidth - point.y,
+                        y: point.x
+                    };
+                case -1: // Counterclockwise
+                    return {
+                        x: point.y,
+                        y: this.canvasWindow.imageHeight - point.x
+                    };
+                default:
+                    return point;
+            }
+        });
+        
+        this._points = rotatedPoints;
+        this.updateBoundingBox();
         this.applyUserScale();
     }
 }

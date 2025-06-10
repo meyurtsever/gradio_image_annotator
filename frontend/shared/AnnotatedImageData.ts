@@ -1,8 +1,8 @@
 import type { FileData } from "@gradio/client";
-import Box from "./Box";
+import type { Shape } from "./Shape";
 
 export default class AnnotatedImageData {
     image: FileData;
-    boxes: Box[] = [];
+    boxes: Shape[] = [];
     orientation: number = 0;
 }

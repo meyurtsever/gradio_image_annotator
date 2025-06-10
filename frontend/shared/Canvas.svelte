@@ -1,14 +1,15 @@
 <script lang="ts">
     import { onMount, onDestroy, createEventDispatcher } from "svelte";
-	import { BoundingBox, Hand, Trash, Label } from "./icons/index";
+	import { BoundingBox, Hand, Trash, Label, Freehand } from "./icons/index";
 	import ModalBox from "./ModalBox.svelte";
 	import Box from "./Box";
+	import FreehandPath from "./FreehandPath";
 	import { Colors } from './Colors.js';
 	import AnnotatedImageData from "./AnnotatedImageData";
 	import { Undo, Redo } from "@gradio/icons";
 	import WindowViewer from "./WindowViewer";
 
-	enum Mode {creation, drag}
+	enum Mode {creation, drag, freehand}
 
     export let imageUrl: string | null = null;
 	export let interactive: boolean;
@@ -38,7 +39,6 @@
 	let selectedBox = -1;
 	let mode: Mode = Mode.drag;
 	let canvasWindow: WindowViewer = new WindowViewer(draw);
-
 	if (value !== null && value.boxes.length == 0) {
 		mode = Mode.creation;
 	}
@@ -141,9 +141,10 @@
 		) {
 			event.target.releasePointerCapture(event.pointerId);
 		}
-
 		if (mode === Mode.creation) {
 			createBox(event);
+		} else if (mode === Mode.freehand) {
+			createFreehandPath(event);
 		} else if (mode === Mode.drag) {
 			clickBox(event);
 		}
@@ -215,7 +216,6 @@
 		if (value === null) {
 			return;
 		}
-
 		if (mode !== Mode.drag) {
 			return;
 		}
@@ -267,6 +267,48 @@
 		draw();
 	}
 
+	function createFreehandPath(event: PointerEvent) {
+		const rect = canvas.getBoundingClientRect();
+		let color;
+		if (choicesColors.length > 0) {
+			color = colorHexToRGB(choicesColors[0]);
+		} else if (singleBox) {
+			if (value.boxes.length > 0) {
+				color = value.boxes[0].color;
+			} else {
+				color = Colors[0];
+			}
+		} else {
+			color = Colors[value.boxes.length % Colors.length];
+		}
+		
+		let freehandPath = new FreehandPath(
+			draw,
+			onBoxFinishCreation,
+			canvasWindow,
+			canvasXmin,
+			canvasYmin,
+			canvasXmax,
+			canvasYmax,
+			"",
+			color,
+			boxAlpha,
+			boxMinSize,
+			handleSize,
+			boxThickness,
+			boxSelectedThickness
+		);
+		freehandPath.startCreating(event, rect.left, rect.top);
+		if (singleBox) {
+			value.boxes = [freehandPath];
+		} else {
+			value.boxes = [freehandPath, ...value.boxes];
+		}
+		selectBox(0);
+		draw();
+		dispatch("change");
+	}
+
 	function createBox(event: PointerEvent) {
 		const rect = canvas.getBoundingClientRect();
 		const x = (event.clientX - rect.left - canvasWindow.offsetX) / scaleFactor / canvasWindow.scale;
@@ -314,9 +356,13 @@
 		draw();
 		dispatch("change");
 	}
-
 	function setCreateMode() {
 		mode = Mode.creation;
+		canvas.style.cursor = "crosshair";
+	}
+
+	function setFreehandMode() {
+		mode = Mode.freehand;
 		canvas.style.cursor = "crosshair";
 	}
 
@@ -376,7 +422,6 @@
 			}
 		}
 	}
-
 	function onModalNewChange(event) {
 		newModalVisible = false;
 		const { detail } = event;
@@ -394,6 +439,8 @@
 				box.color = colorHexToRGB(color);
 				draw();
 				dispatch("change");
+				// Automatically switch to drag mode after labeling
+				setDragMode();
 			} else {
 				onDeleteBox();
 			}
@@ -413,7 +460,6 @@
 			defaultLabelCache.color = color;
 		}
 	}
-
 	function onUseDefaultLabelModalNew(){
 		if (selectedBox >= 0 && selectedBox < value.boxes.length) {
 			let box = value.boxes[selectedBox];
@@ -423,6 +469,8 @@
 			}
 			draw();
 			dispatch("change");
+			// Automatically switch to drag mode after labeling
+			setDragMode();
 		}
 	}
 
@@ -507,11 +555,10 @@
 		}
 	}
 	const observer = new ResizeObserver(resize);
-
 	function parseInputBoxes() {
 		for (let i = 0; i < value.boxes.length; i++) {
 			let box = value.boxes[i];
-			if (!(box instanceof Box)) {
+			if (!(box instanceof Box) && !(box instanceof FreehandPath)) {
 				let color = "";
 				let label = "";
 				if (box.hasOwnProperty("color")) {
@@ -525,26 +572,51 @@
 				if (box.hasOwnProperty("label")) {
 					label = box["label"];
 				}
-				box = new Box(
-					draw,
-					onBoxFinishCreation,
-					canvasWindow,
-					canvasXmin,
-					canvasYmin,
-					canvasXmax,
-					canvasYmax,
-					label,
-					box["xmin"],
-					box["ymin"],
-					box["xmax"],
-					box["ymax"],
-					color,
-					boxAlpha,
-					boxMinSize,
-					handleSize,
-					boxThickness,
-					boxSelectedThickness
-				);
+				
+				// Check if it's a freehand path
+				if (box.hasOwnProperty("type") && box["type"] === "freehand" && box.hasOwnProperty("points")) {
+					let freehandPath = new FreehandPath(
+						draw,
+						onBoxFinishCreation,
+						canvasWindow,
+						canvasXmin,
+						canvasYmin,
+						canvasXmax,
+						canvasYmax,
+						label,
+						color,
+						boxAlpha,
+						boxMinSize,
+						handleSize,
+						boxThickness,
+						boxSelectedThickness
+					);
+					freehandPath._points = box["points"];
+					freehandPath.updateBoundingBox();
+					box = freehandPath;
+				} else {
+					// Regular box
+					box = new Box(
+						draw,
+						onBoxFinishCreation,
+						canvasWindow,
+						canvasXmin,
+						canvasYmin,
+						canvasXmax,
+						canvasYmax,
+						label,
+						box["xmin"],
+						box["ymin"],
+						box["xmax"],
+						box["ymax"],
+						color,
+						boxAlpha,
+						boxMinSize,
+						handleSize,
+						boxThickness,
+						boxSelectedThickness
+					);
+				}
 				value.boxes[i] = box;
 			}
 		}
@@ -628,12 +700,17 @@
 </div>
 
 {#if interactive}
-	<span class="canvas-control">
-		<button
+	<span class="canvas-control">		<button
 			class="icon"
 			class:selected={mode === Mode.creation}
 			aria-label="Create box"
 			on:click={() => setCreateMode()}><BoundingBox/></button
+		>
+		<button
+			class="icon"
+			class:selected={mode === Mode.freehand}
+			aria-label="Freehand drawing"
+			on:click={() => setFreehandMode()}><Freehand/></button
 		>
 		<button
 			class="icon"

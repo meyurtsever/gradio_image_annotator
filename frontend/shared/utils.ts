@@ -1,3 +1,15 @@
+export function setAlpha(rgbColor: string, alpha: number): string {
+    if (rgbColor.startsWith('rgba')) {
+        return rgbColor.replace(/[\d.]+$/, alpha.toString());
+    }
+    const matches = rgbColor.match(/\d+/g);
+    if (!matches || matches.length !== 3) {
+        return `rgba(50, 50, 50, ${alpha})`;
+    }
+    const [r, g, b] = matches;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 export const get_coordinates_of_clicked_image = (
 	evt: MouseEvent
 ): [number, number] | null => {
