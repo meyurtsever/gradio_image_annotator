@@ -152,11 +152,27 @@
 		active_index = null;
 		filter_input.blur();
 	}
-
 	function handle_focus(e: FocusEvent): void {
 		filtered_indices = choices.map((_, i) => i);
 		show_options = true;
 		dispatch("focus");
+	}
+
+	function handle_container_click(): void {
+		// Make the entire dropdown container clickable
+		if (!disabled) {
+			filter_input.focus();
+			show_options = true;
+		}
+	}
+
+	// Handle clicks on the dropdown arrow and secondary wrapper
+	function handle_wrapper_click(e: MouseEvent): void {
+		e.preventDefault();
+		if (!disabled) {
+			filter_input.focus();
+			show_options = !show_options;
+		}
 	}
 
 	function handle_blur(): void {
@@ -197,23 +213,22 @@
 			dispatch("enter", value);
 		}
 	}
-
 	afterUpdate(() => {
 		value_is_output = false;
 		initialized = true;
 	});
 
 	onMount(() => {
-    	filter_input.focus();
+    	// Remove auto-focus to prevent dropdown from opening automatically
+    	// filter_input.focus();
   	});
 </script>
 
 <div class:container>
 	<BlockTitle {show_label} {info}>{label}</BlockTitle>
-
-	<div class="wrap">
+	<div class="wrap" on:click={handle_container_click}>
 		<div class="wrap-inner" class:show_options>
-			<div class="secondary-wrap">
+			<div class="secondary-wrap" on:click={handle_wrapper_click}>
 				<input
 					role="listbox"
 					aria-controls="dropdown-options"
@@ -237,7 +252,7 @@
 					readonly={!filterable}
 				/>
 				{#if !disabled}
-					<div class="icon-wrap">
+					<div class="icon-wrap" on:click={handle_wrapper_click}>
 						<DropdownArrow />
 					</div>
 				{/if}
@@ -255,11 +270,11 @@
 	</div>
 </div>
 
-<style>
-	.icon-wrap {
+<style>	.icon-wrap {
 		color: var(--body-text-color);
 		margin-right: var(--size-2);
 		width: var(--size-5);
+		cursor: pointer;
 	}
 	.container {
 		height: 100%;
@@ -268,11 +283,11 @@
 		box-shadow: var(--input-shadow);
 		border: var(--input-border-width) solid var(--border-color-primary);
 	}
-
 	.wrap {
 		position: relative;
 		border-radius: var(--input-radius);
 		background: var(--input-background-fill);
+		cursor: pointer;
 	}
 
 	.wrap:focus-within {
@@ -288,14 +303,14 @@
 		gap: var(--checkbox-label-gap);
 		padding: var(--checkbox-label-padding);
 		height: 100%;
-	}
-	.secondary-wrap {
+	}	.secondary-wrap {
 		display: flex;
 		flex: 1 1 0%;
 		align-items: center;
 		border: none;
 		min-width: min-content;
 		height: 100%;
+		cursor: pointer;
 	}
 
 	input {

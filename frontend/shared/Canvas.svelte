@@ -9,8 +9,21 @@
 	import AnnotatedImageData from "./AnnotatedImageData";
 	import { Undo, Redo } from "@gradio/icons";
 	import WindowViewer from "./WindowViewer";
-
 	enum Mode {creation, drag, freehand, polygon}
+	// Undo/Redo system
+	interface UndoRedoAction {
+		type: 'create_shape' | 'delete_shape' | 'edit_shape' | 'polygon_point' | 'move_shape' | 'resize_shape';
+		shapeIndex?: number;
+		shapeData?: any;
+		oldShapeData?: any;
+		pointIndex?: number;
+		pointData?: any;
+		timestamp?: number; // Optional since addUndoAction will add it
+	}
+	let undoStack: UndoRedoAction[] = [];
+	let redoStack: UndoRedoAction[] = [];
+	const MAX_UNDO_STEPS = 50;
+	let isInitialState = true; // Flag to track if we're in initial state
 
     export let imageUrl: string | null = null;
 	export let interactive: boolean;
@@ -129,11 +142,13 @@
 			value.boxes[index].setSelected(true);
 		}		draw();
 	}
-	
-	function handlePointerDown(event: PointerEvent) {
+		function handlePointerDown(event: PointerEvent) {
 		if (!interactive) {
 			return;
 		}
+
+		// Mark that this is not during initial state anymore after first interaction
+		isInitialState = false;
 
 		if (
 			event.target instanceof Element &&
@@ -150,29 +165,64 @@
 		} else if (mode === Mode.drag) {
 			clickBox(event);
 		}
-	}
-	function clickBox(event: PointerEvent) {
+	}function clickBox(event: PointerEvent) {
 		console.log("clickBox function called, mode:", mode === Mode.drag ? "drag" : "creation");
 		const rect = canvas.getBoundingClientRect();
 		const mouseX = event.clientX - rect.left;
 		const mouseY = event.clientY - rect.top;
 		let selectedBoxFlag = false;
-
 		// Check if the mouse is over any of the resizing handles
 		for (const [i, box] of value.boxes.entries()) {
 			const handleIndex = box.indexOfPointInsideHandle(mouseX, mouseY);
 			if (handleIndex >= 0) {
 				selectedBoxFlag = true;
 				selectBox(i);
+						// Set up undo callbacks for resize
+				let resizeStartState: any = null;
+				box.onMoveStart = () => {
+					resizeStartState = cloneShapeData(box);
+					console.log("Resize started, captured state:", resizeStartState);
+				};
+				box.onMoveEnd = () => {
+					if (resizeStartState) {
+						const finalState = cloneShapeData(box);
+						console.log("Resize ended, final state:", finalState);
+						addUndoAction({
+							type: 'edit_shape',
+							shapeIndex: i,
+							oldShapeData: resizeStartState,
+							shapeData: finalState
+						});
+						resizeStartState = null;
+					}
+				};
+				
 				box.startResize(handleIndex, event);
 				return;
 			}
-		}
-		// Check if the mouse is inside a box
+		}		// Check if the mouse is inside a box
 		for (const [i, box] of value.boxes.entries()) {
 			if (box.isPointInsideBox(mouseX, mouseY)) {
 				selectedBoxFlag = true;
 				selectBox(i);
+				
+				// Set up undo callbacks for drag
+				let dragStartState: any = null;
+				box.onMoveStart = () => {
+					dragStartState = cloneShapeData(box);
+				};
+				box.onMoveEnd = () => {
+					if (dragStartState) {
+						addUndoAction({
+							type: 'edit_shape',
+							shapeIndex: i,
+							oldShapeData: dragStartState,
+							shapeData: cloneShapeData(box)
+						});
+						dragStartState = null;
+					}
+				};
+				
 				box.startDrag(event);
 				return;
 			}
@@ -182,6 +232,7 @@
 				selectBox(-1);
 			}
 			
+			// IMPORTANT: Select events are NEVER tracked in undo/redo - this is just coordinate dispatch
 			console.log("No box selected, checking if we should dispatch select event");
 			// Dispatch select event with coordinates when clicking on empty area in drag mode
 			if (mode === Mode.drag) {
@@ -194,6 +245,7 @@
 				// Check if click is within the image bounds (using original image dimensions)
 				if (image && imageX >= 0 && imageX <= image.naturalWidth && imageY >= 0 && imageY <= image.naturalHeight) {
 					console.log("Dispatching select event with coordinates:", [Math.round(imageX), Math.round(imageY)]);
+					// NO UNDO TRACKING FOR SELECT EVENTS - this is just for coordinate reporting
 					dispatch("select", { coordinates: [Math.round(imageX), Math.round(imageY)] });
 				} else {
 					console.log("Click outside image bounds or no image loaded", { 
@@ -235,9 +287,28 @@
 		}
 
 		canvas.style.cursor = "default";
-	}
-	function handleKeyPress(event: KeyboardEvent) {
+	}	function handleKeyPress(event: KeyboardEvent) {
 		if (!interactive) {
+			return;
+		}
+
+		// Handle CTRL+Z and CTRL+Y for undo/redo
+		if (event.ctrlKey) {
+			switch (event.key.toLowerCase()) {
+				case "z":
+					if (event.shiftKey) {
+						// CTRL+SHIFT+Z is also redo in some systems
+						performRedo();
+					} else {
+						performUndo();
+					}
+					event.preventDefault();
+					break;
+				case "y":
+					performRedo();
+					event.preventDefault();
+					break;
+			}
 			return;
 		}
 
@@ -275,7 +346,338 @@
 		canvasWindow.scale = newScale;
 		draw();
 	}
+	function addUndoAction(action: UndoRedoAction) {
+		// Don't add undo actions during initial state setup
+		if (isInitialState) {
+			console.log("Skipping undo action during initial state:", action);
+			return;
+		}
+		
+		// Clear redo stack when new action is added
+		redoStack = [];
+		
+		// Add to undo stack
+		undoStack.push({
+			...action,
+			timestamp: Date.now()
+		});
+		
+		// Limit undo stack size
+		if (undoStack.length > MAX_UNDO_STEPS) {
+			undoStack.shift();
+		}
+		
+		console.log("Added undo action:", action, "Stack size:", undoStack.length);
+	}
 
+	function performUndo() {
+		if (undoStack.length === 0) {
+			console.log("Cannot undo: stack is empty");
+			return;
+		}
+		
+		const action = undoStack.pop();
+		if (!action) return;
+
+		switch (action.type) {
+			case 'create_shape':
+				// Remove the created shape
+				if (action.shapeIndex !== undefined && action.shapeIndex < value.boxes.length) {
+					const removedShape = value.boxes.splice(action.shapeIndex, 1)[0];
+					redoStack.push({
+						type: 'delete_shape',
+						shapeIndex: action.shapeIndex,
+						shapeData: cloneShapeData(removedShape),
+						timestamp: Date.now()
+					});
+				}
+				break;
+				
+			case 'delete_shape':
+				// Restore the deleted shape
+				if (action.shapeData && action.shapeIndex !== undefined) {
+					const restoredShape = restoreShapeFromData(action.shapeData);
+					value.boxes.splice(action.shapeIndex, 0, restoredShape);
+					redoStack.push({
+						type: 'create_shape',
+						shapeIndex: action.shapeIndex,
+						timestamp: Date.now()
+					});
+				}
+				break;
+						case 'polygon_point':
+				// Remove the last added polygon point
+				if (currentPolygon && action.pointData) {
+					currentPolygon._points.pop();
+					
+					// If polygon has no points left, remove it from the canvas and reset currentPolygon
+					if (currentPolygon._points.length === 0) {
+						// Find and remove the polygon from the boxes array
+						const polygonIndex = value.boxes.indexOf(currentPolygon);
+						if (polygonIndex >= 0) {
+							value.boxes.splice(polygonIndex, 1);
+						}
+						currentPolygon = null; // Reset the current polygon
+					} else {
+						currentPolygon.updateBoundingBox();
+					}
+					
+					redoStack.push({
+						type: 'polygon_point',
+						pointData: action.pointData,
+						timestamp: Date.now()
+					});
+				}
+				break;
+				
+			case 'edit_shape':
+				// Restore previous shape state
+				if (action.shapeIndex !== undefined && action.oldShapeData && action.shapeIndex < value.boxes.length) {
+					const currentShapeData = cloneShapeData(value.boxes[action.shapeIndex]);
+					restoreShapeFromData(action.oldShapeData, value.boxes[action.shapeIndex]);
+					redoStack.push({
+						type: 'edit_shape',
+						shapeIndex: action.shapeIndex,
+						oldShapeData: currentShapeData,
+						shapeData: action.shapeData,
+						timestamp: Date.now()
+					});
+				}
+				break;
+		}
+		
+		selectBox(-1);
+		draw();
+		dispatch("change");
+	}
+
+	function performRedo() {
+		if (redoStack.length === 0) return;
+		
+		const action = redoStack.pop();
+		if (!action) return;
+
+		switch (action.type) {
+			case 'create_shape':
+				// Remove the shape again
+				if (action.shapeIndex !== undefined && action.shapeIndex < value.boxes.length) {
+					const removedShape = value.boxes.splice(action.shapeIndex, 1)[0];
+					undoStack.push({
+						type: 'delete_shape',
+						shapeIndex: action.shapeIndex,
+						shapeData: cloneShapeData(removedShape),
+						timestamp: Date.now()
+					});
+				}
+				break;
+				
+			case 'delete_shape':
+				// Add the shape back
+				if (action.shapeData && action.shapeIndex !== undefined) {
+					const restoredShape = restoreShapeFromData(action.shapeData);
+					value.boxes.splice(action.shapeIndex, 0, restoredShape);
+					undoStack.push({
+						type: 'create_shape',
+						shapeIndex: action.shapeIndex,
+						timestamp: Date.now()
+					});
+				}
+				break;
+						case 'polygon_point':
+				// Add the polygon point back
+				if (action.pointData) {
+					// If currentPolygon is null, we need to find the polygon that was being created
+					// or recreate it if it was removed
+					if (!currentPolygon) {
+						// Look for a polygon in the boxes that might be the one we're working with
+						// For now, we'll assume we need to recreate the polygon
+						// This is a complex case that should be rare in practice
+						console.warn("Trying to redo polygon point but no current polygon exists");
+					} else {
+						currentPolygon._points.push(action.pointData);
+						
+						// If this was the first point after the polygon was removed, add it back to boxes
+						if (currentPolygon._points.length === 1 && !value.boxes.includes(currentPolygon)) {
+							if (singleBox) {
+								value.boxes = [currentPolygon];
+							} else {
+								value.boxes = [currentPolygon, ...value.boxes];
+							}
+						}
+						
+						currentPolygon.updateBoundingBox();
+					}
+					
+					undoStack.push({
+						type: 'polygon_point',
+						pointData: action.pointData,
+						timestamp: Date.now()
+					});
+				}
+				break;
+				
+			case 'edit_shape':
+				// Restore the edited state
+				if (action.shapeIndex !== undefined && action.shapeData && action.shapeIndex < value.boxes.length) {
+					const currentShapeData = cloneShapeData(value.boxes[action.shapeIndex]);
+					restoreShapeFromData(action.shapeData, value.boxes[action.shapeIndex]);
+					undoStack.push({
+						type: 'edit_shape',
+						shapeIndex: action.shapeIndex,
+						oldShapeData: currentShapeData,
+						shapeData: action.oldShapeData,
+						timestamp: Date.now()
+					});
+				}
+				break;
+		}
+		
+		selectBox(-1);
+		draw();
+		dispatch("change");
+	}
+
+	/**
+	 * Auto-click at (0,0) to enable proper undo/redo functionality after labeling
+	*/
+
+	function cloneShapeData(shape: any): any {
+		if (!shape) return null;
+		
+		if (shape instanceof FreehandPath) {
+			return {
+				type: 'freehand',
+				points: [...shape._points],
+				label: shape.label,
+				color: shape.color,
+				xmin: shape.xmin,
+				ymin: shape.ymin,
+				xmax: shape.xmax,
+				ymax: shape.ymax
+			};
+		} else if (shape instanceof PolygonShape) {
+			return {
+				type: 'polygon',
+				points: [...shape._points],
+				label: shape.label,
+				color: shape.color,
+				xmin: shape.xmin,
+				ymin: shape.ymin,
+				xmax: shape.xmax,
+				ymax: shape.ymax
+			};		} else if (shape instanceof Box) {
+			return {
+				type: 'box',
+				label: shape.label,
+				color: shape.color,
+				xmin: shape._xmin,
+				ymin: shape._ymin,
+				xmax: shape._xmax,
+				ymax: shape._ymax
+			};
+		}
+		return null;
+	}
+
+	function restoreShapeFromData(data: any, existingShape?: any): any {
+		if (!data) return null;
+				if (existingShape) {
+			// Update existing shape
+			existingShape.label = data.label;
+			existingShape.color = data.color;
+			
+			if (existingShape instanceof Box) {
+				// For Box objects, update the actual coordinates (_xmin, etc.)
+				existingShape._xmin = data.xmin;
+				existingShape._ymin = data.ymin;
+				existingShape._xmax = data.xmax;
+				existingShape._ymax = data.ymax;
+				// Apply scaling to get the scaled coordinates
+				existingShape.applyUserScale();
+			} else {
+				// For other shapes, update the regular coordinates
+				existingShape.xmin = data.xmin;
+				existingShape.ymin = data.ymin;
+				existingShape.xmax = data.xmax;
+				existingShape.ymax = data.ymax;
+			}
+			
+			if ((existingShape instanceof FreehandPath || existingShape instanceof PolygonShape) && data.points) {
+				existingShape._points = [...data.points];
+				existingShape.updateBoundingBox();
+			}
+			
+			return existingShape;
+		} else {
+			// Create new shape
+			switch (data.type) {
+				case 'freehand':
+					const freehand = new FreehandPath(
+						draw,
+						onBoxFinishCreation,
+						canvasWindow,
+						canvasXmin,
+						canvasYmin,
+						canvasXmax,
+						canvasYmax,
+						data.label,
+						data.color,
+						boxAlpha,
+						boxMinSize,
+						handleSize,
+						boxThickness,
+						boxSelectedThickness
+					);
+					freehand._points = [...data.points];
+					freehand.updateBoundingBox();
+					return freehand;
+					
+				case 'polygon':
+					const polygon = new PolygonShape(
+						draw,
+						onBoxFinishCreation,
+						canvasWindow,
+						canvasXmin,
+						canvasYmin,
+						canvasXmax,
+						canvasYmax,
+						data.label,
+						data.color,
+						boxAlpha,
+						boxMinSize,
+						handleSize,
+						boxThickness,
+						boxSelectedThickness
+					);
+					polygon._points = [...data.points];
+					polygon.updateBoundingBox();
+					return polygon;
+					
+				case 'box':
+					return new Box(
+						draw,
+						onBoxFinishCreation,
+						canvasWindow,
+						canvasXmin,
+						canvasYmin,
+						canvasXmax,
+						canvasYmax,
+						data.label,
+						data.xmin,
+						data.ymin,
+						data.xmax,
+						data.ymax,
+						data.color,
+						boxAlpha,
+						boxMinSize,
+						handleSize,
+						boxThickness,
+						boxSelectedThickness
+					);
+			}
+		}
+		return null;
+	}
 	function createFreehandPath(event: PointerEvent) {
 		const rect = canvas.getBoundingClientRect();
 		let color;
@@ -313,26 +715,39 @@
 		} else {
 			value.boxes = [freehandPath, ...value.boxes];
 		}
+		
+		// Add undo action for shape creation
+		addUndoAction({
+			type: 'create_shape',
+			shapeIndex: 0
+		});
+		
 		selectBox(0);
 		draw();
 		dispatch("change");
-	}
-	function handlePolygonClick(event: PointerEvent) {
+	}	function handlePolygonClick(event: PointerEvent) {
+		// Check if currentPolygon is in an invalid state (no points or not in boxes array)
+		if (currentPolygon && (!currentPolygon._points || currentPolygon._points.length === 0 || !value.boxes.includes(currentPolygon))) {
+			console.log("Resetting invalid currentPolygon state");
+			currentPolygon = null;
+		}
+		
 		if (currentPolygon === null) {
 			// Start creating a new polygon
 			createPolygon(event);
 		} else {
 			// Add point to existing polygon or finish if conditions are met
-			const finished = currentPolygon.addPoint(event);
-			if (!finished) {
-				// Continue creating - just redraw
-				draw();
-				dispatch("change");
+			if (currentPolygon.isCreating) {
+				const finished = currentPolygon.addPoint(event);
+				if (!finished) {
+					// Continue creating - just redraw
+					draw();
+					dispatch("change");
+				}
+				// If finished is true, the polygon's finishCreating method will handle completion
 			}
-			// If finished is true, the polygon's finishCreating method will handle completion
 		}
-	}
-	function createPolygon(event: PointerEvent) {
+	}function createPolygon(event: PointerEvent) {
 		const rect = canvas.getBoundingClientRect();
 		let color;
 		if (choicesColors.length > 0) {
@@ -364,6 +779,14 @@
 			boxSelectedThickness
 		);
 		
+		// Set up point addition callback for undo/redo
+		polygon.onPointAdded = (point) => {
+			addUndoAction({
+				type: 'polygon_point',
+				pointData: point
+			});
+		};
+		
 		currentPolygon = polygon; // Set the current polygon being created
 		
 		polygon.startCreating(event, rect.left, rect.top);
@@ -372,11 +795,17 @@
 		} else {
 			value.boxes = [polygon, ...value.boxes];
 		}
+		
+		// Add undo action for shape creation
+		addUndoAction({
+			type: 'create_shape',
+			shapeIndex: 0
+		});
+		
 		selectBox(0);
 		draw();
 		dispatch("change");
 	}
-
 	function createBox(event: PointerEvent) {
 		const rect = canvas.getBoundingClientRect();
 		const x = (event.clientX - rect.left - canvasWindow.offsetX) / scaleFactor / canvasWindow.scale;
@@ -420,28 +849,42 @@
 		} else {
 			value.boxes = [box, ...value.boxes];
 		}
+		
+		// Add undo action for shape creation
+		addUndoAction({
+			type: 'create_shape',
+			shapeIndex: 0
+		});
+		
 		selectBox(0);
 		draw();
 		dispatch("change");
-	}
-	function setCreateMode() {
+	}	function setCreateMode() {
 		mode = Mode.creation;
 		canvas.style.cursor = "crosshair";
+		// Reset polygon state when switching modes
+		currentPolygon = null;
 	}
 
 	function setFreehandMode() {
 		mode = Mode.freehand;
 		canvas.style.cursor = "crosshair";
+		// Reset polygon state when switching modes
+		currentPolygon = null;
 	}
 
 	function setPolygonMode() {
 		mode = Mode.polygon;
 		canvas.style.cursor = "crosshair";
+		// Don't reset currentPolygon when switching TO polygon mode
+		// Only reset when switching away from it
 	}
 
 	function setDragMode() {
 		mode = Mode.drag;
 		canvas.style.cursor = "default";
+		// Reset polygon state when switching modes
+		currentPolygon = null;
 	}
 
 	function onBoxFinishCreation() {
@@ -497,7 +940,29 @@
 		
 		onEditBox();
 	}
-
+	function addCustomLabelToChoices(label: string, color: string) {
+		// Check if the label already exists in choices
+		const existingLabelIndex = choices.findIndex(choice => choice[0] === label);
+		
+		if (existingLabelIndex === -1) {
+			// Label doesn't exist, add it to choices and choicesColors
+			choices.push([label, choices.length]);
+			choicesColors.push(color);
+			
+			// Trigger reactivity by reassigning the arrays
+			choices = choices;
+			choicesColors = choicesColors;
+			
+			console.log(`Added custom label "${label}" with color ${color} to choices`);
+		} else {
+			// Label exists, update its color if different
+			if (choicesColors[existingLabelIndex] !== color) {
+				choicesColors[existingLabelIndex] = color;
+				choicesColors = choicesColors;
+				console.log(`Updated color for existing label "${label}" to ${color}`);
+			}
+		}
+	}
 	function onModalEditChange(event) {
 		editModalVisible = false;
 		const { detail } = event;
@@ -507,16 +972,37 @@
 		if (selectedBox >= 0 && selectedBox < value.boxes.length) {
 			let box = value.boxes[selectedBox];
 			if (ret == 1) {
+				// Store old state for undo
+				const oldShapeData = cloneShapeData(box);
+				
+				// Add custom label to choices if it's new
+				addCustomLabelToChoices(label, color);
+				
 				box.label = label;
 				box.color = colorHexToRGB(color);
-				draw();
+				
+				// Store new state and add undo action
+				const newShapeData = cloneShapeData(box);
+				addUndoAction({
+					type: 'edit_shape',
+					shapeIndex: selectedBox,
+					oldShapeData: oldShapeData,
+					shapeData: newShapeData
+				});				draw();
 				dispatch("change");
 			} else if (ret == -1) {
 				onDeleteBox();
 			}
 		}
-	}
-	function onModalNewChange(event) {
+		
+		// Focus canvas after modal closes to ensure keyboard events work
+		setTimeout(() => {
+			if (canvas) {
+				canvas.focus();
+				console.log("Canvas focused after modal edit change");
+			}
+		}, 100);
+	}function onModalNewChange(event) {
 		newModalVisible = false;
 		const { detail } = event;
 		let label = detail.label;
@@ -526,19 +1012,28 @@
 		if (selectedBox >= 0 && selectedBox < value.boxes.length) {
 			let box = value.boxes[selectedBox];
 			if (ret == 1) {
+				// Add custom label to choices if it's new
+				addCustomLabelToChoices(label, color);
+				
 				labelDetailLock = lock;
 				defaultLabelCache.label = label;
 				defaultLabelCache.color = color;
 				box.label = label;
-				box.color = colorHexToRGB(color);
-				draw();
-				dispatch("change");
+				box.color = colorHexToRGB(color);			draw();				dispatch("change");
 				// Automatically switch to drag mode after labeling
 				setDragMode();
 			} else {
 				onDeleteBox();
 			}
 		}
+		
+		// Focus canvas after modal closes to ensure keyboard events work
+		setTimeout(() => {
+			if (canvas) {
+				canvas.focus();
+				console.log("Canvas focused after modal new change");
+			}
+		}, 100);
 	}
 
 	function onDefaultLabelEditChange(event) {
@@ -547,12 +1042,19 @@
 		let label = detail.label;
 		let color = detail.color;
 		let ret = detail.ret;
-		let lock = detail.lock;
-		if (ret == 1) {
+		let lock = detail.lock;		if (ret == 1) {
 			labelDetailLock = lock;
 			defaultLabelCache.label = label;
 			defaultLabelCache.color = color;
 		}
+		
+		// Focus canvas after modal closes to ensure keyboard events work
+		setTimeout(() => {
+			if (canvas) {
+				canvas.focus();
+				console.log("Canvas focused after default label edit change");
+			}
+		}, 100);
 	}
 	function onUseDefaultLabelModalNew(){
 		if (selectedBox >= 0 && selectedBox < value.boxes.length) {
@@ -560,16 +1062,31 @@
 			box.label = defaultLabelCache.label;
 			if (defaultLabelCache.color !== "") {
 				box.color = colorHexToRGB(defaultLabelCache.color);
-			}
-			draw();
+			}		draw();
 			dispatch("change");
 			// Automatically switch to drag mode after labeling
 			setDragMode();
 		}
-	}
-
-    function onDeleteBox() {
+		
+		// Focus canvas after labeling to ensure keyboard events work
+		setTimeout(() => {
+			if (canvas) {
+				canvas.focus();
+				console.log("Canvas focused after default label use");
+			}
+		}, 100);
+	}function onDeleteBox() {
 		if (selectedBox >= 0 && selectedBox < value.boxes.length) {
+			// Store shape data for undo
+			const deletedShape = value.boxes[selectedBox];
+			const shapeData = cloneShapeData(deletedShape);
+			
+			addUndoAction({
+				type: 'delete_shape',
+				shapeIndex: selectedBox,
+				shapeData: shapeData
+			});
+			
 			value.boxes.splice(selectedBox, 1);
 			selectBox(-1);
 			if (singleBox) {
@@ -757,8 +1274,10 @@
 			}
 		}
 	}
-
 	onMount(() => {
+		// Reset initial state flag
+		isInitialState = true;
+		
 		if (Array.isArray(choices) && choices.length > 0) {
 			if (!Array.isArray(choicesColors) || choicesColors.length == 0) {
 				for (let i = 0; i < choices.length; i++) {
@@ -779,6 +1298,12 @@
 		setImage();
 		resize();
 		draw();
+		
+		// After initial setup is complete, allow undo tracking
+		setTimeout(() => {
+			isInitialState = false;
+			console.log("Initial state setup complete, undo tracking enabled");
+		}, 100);
 	});
 	
 	function handleCanvasFocus() {
@@ -800,9 +1325,9 @@
 	tabindex="-1"
 	on:focusin={handleCanvasFocus}
 	on:focusout={handleCanvasBlur}
->
-	<canvas
+>	<canvas
 		bind:this={canvas}
+		tabindex="0"
 		on:pointerdown={handlePointerDown}
 		on:pointerup={handlePointerUp}
 		on:pointermove={handlesCursor ? handlePointerMove : null}
@@ -828,7 +1353,7 @@
 		<button
 			class="icon"
 			class:selected={mode === Mode.polygon}
-			aria-label="Polygon drawing"
+			aria-label="Polygon drawing (click points, Space/start point to finish)"
 			on:click={() => setPolygonMode()}><Polygon/></button
 		>
 		<button
@@ -853,13 +1378,15 @@
 		{/if}
 		<button
 			class="icon"
-			aria-label="Rotate counterclockwise"
-			on:click={() => onRotateImage(-1)}><Undo/></button
+			class:disabled={undoStack.length === 0}
+			aria-label="Undo (Ctrl+Z)"
+			on:click={() => performUndo()}><Undo/></button
 		>
 		<button
 			class="icon"
-			aria-label="Rotate clockwise"
-			on:click={() => onRotateImage(1)}><Redo/></button
+			class:disabled={redoStack.length === 0}
+			aria-label="Redo (Ctrl+Y)"
+			on:click={() => performRedo()}><Redo/></button
 		>
 	</span>
 {/if}
@@ -882,8 +1409,12 @@
 		choices={choices}
 		showRemove={false}
 		choicesColors={choicesColors}
-		label={selectedBox >= 0 && selectedBox < value.boxes.length ? value.boxes[selectedBox].label : ""}
-		color={selectedBox >= 0 && selectedBox < value.boxes.length ? colorRGBAToHex(value.boxes[selectedBox].color) : ""}
+		label={selectedBox >= 0 && selectedBox < value.boxes.length ? 
+			(value.boxes[selectedBox].label || (choices.length > 0 ? choices[0][0] : "")) : 
+			(choices.length > 0 ? choices[0][0] : "")}
+		color={selectedBox >= 0 && selectedBox < value.boxes.length ? 
+			colorRGBAToHex(value.boxes[selectedBox].color) : 
+			(choicesColors.length > 0 ? choicesColors[0] : "")}
 		labelDetailLock = {labelDetailLock}
 	/>
 {/if}
@@ -932,10 +1463,19 @@
 		color: var(--neutral-400);
 		border-radius: var(--radius-md);
 	}
-
 	.icon:hover,
 	.icon:focus {
 		color: var(--color-accent);
+	}
+	
+	.icon.disabled {
+		color: var(--neutral-300);
+		cursor: not-allowed;
+	}
+	
+	.icon.disabled:hover,
+	.icon.disabled:focus {
+		color: var(--neutral-300);
 	}
 	
 	.selected {

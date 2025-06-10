@@ -26,6 +26,12 @@ export default class Box {
     minSize: number;
     renderCallBack: () => void;
     onFinishCreation: () => void;
+    
+    // Undo/redo support for drag operations
+    onMoveStart?: () => void;
+    onMoveEnd?: () => void;
+    initialStateForUndo?: any;
+    
     canvasXmin: number;
     canvasYmin: number;
     canvasXmax: number;
@@ -290,12 +296,16 @@ export default class Box {
                 handle.ymax - handle.ymin,
             );
         }
-    }
-
-    startDrag(event: MouseEvent): void {
+    }    startDrag(event: MouseEvent): void {
         this.isDragging = true;
         this.offsetMouseX = event.clientX - this._xmin * this.canvasWindow.scale;
         this.offsetMouseY = event.clientY - this._ymin * this.canvasWindow.scale;
+        
+        // Call move start callback for undo/redo
+        if (this.onMoveStart) {
+            this.onMoveStart();
+        }
+        
         document.addEventListener("pointermove", this.handleDrag);
         document.addEventListener("pointerup", this.stopDrag);
     }
@@ -304,6 +314,11 @@ export default class Box {
         this.isDragging = false;
         document.removeEventListener("pointermove", this.handleDrag);
         document.removeEventListener("pointerup", this.stopDrag);
+        
+        // Call move end callback for undo/redo
+        if (this.onMoveEnd) {
+            this.onMoveEnd();
+        }
     };
 
     handleDrag = (event: MouseEvent): void => {
@@ -456,13 +471,18 @@ export default class Box {
             this.renderCallBack();
         }
         this.onFinishCreation();
-    }
-
+}  
     startResize(handleIndex: number, event: MouseEvent): void {
         this.resizingHandleIndex = handleIndex;
         this.isResizing = true;
         this.offsetMouseX = event.clientX - this.resizeHandles[handleIndex].xmin;
         this.offsetMouseY = event.clientY - this.resizeHandles[handleIndex].ymin;
+        
+        // Call move start callback for undo/redo
+        if (this.onMoveStart) {
+            this.onMoveStart();
+        }
+        
         document.addEventListener("pointermove", this.handleResize);
         document.addEventListener("pointerup", this.stopResize);
     }
@@ -523,12 +543,15 @@ export default class Box {
             // this.updateHandles();
             this.renderCallBack();
         }
-    };
-
-    stopResize = (): void => {
+    };    stopResize = (): void => {
         this.isResizing = false;
         document.removeEventListener("pointermove", this.handleResize);
         document.removeEventListener("pointerup", this.stopResize);
+        
+        // Call move end callback for undo/redo
+        if (this.onMoveEnd) {
+            this.onMoveEnd();
+        }
     };
 
     onRotate(op: number): void {

@@ -18,6 +18,13 @@ export default class Polygon {
     minSize: number;
     renderCallBack: () => void;
     onFinishCreation: () => void;
+    onPointAdded?: (point: {x: number, y: number}) => void; // Callback for undo/redo
+    
+    // Undo/redo support for drag operations
+    onMoveStart?: () => void;
+    onMoveEnd?: () => void;
+    initialStateForUndo?: any;
+    
     canvasXmin: number;
     canvasYmin: number;
     canvasXmax: number;
@@ -427,12 +434,16 @@ export default class Polygon {
                 );
             }
         }
-    }
-
-    startDrag(event: MouseEvent): void {
+    }    startDrag(event: MouseEvent): void {
         this.isDragging = true;
         this.offsetMouseX = event.clientX - this._xmin * this.canvasWindow.scale;
         this.offsetMouseY = event.clientY - this._ymin * this.canvasWindow.scale;
+        
+        // Call move start callback for undo/redo
+        if (this.onMoveStart) {
+            this.onMoveStart();
+        }
+        
         document.addEventListener("pointermove", this.handleDrag);
         document.addEventListener("pointerup", this.stopDrag);
     }
@@ -441,6 +452,11 @@ export default class Polygon {
         this.isDragging = false;
         document.removeEventListener("pointermove", this.handleDrag);
         document.removeEventListener("pointerup", this.stopDrag);
+        
+        // Call move end callback for undo/redo
+        if (this.onMoveEnd) {
+            this.onMoveEnd();
+        }
     };
 
     handleDrag = (event: MouseEvent): void => {
@@ -479,9 +495,7 @@ export default class Polygon {
         }
         
         // Note: Don't add document event listeners here since Canvas will handle the clicks
-    }
-
-    // Method that Canvas can call to add points to the polygon
+    }    // Method that Canvas can call to add points to the polygon
     addPoint(event: MouseEvent): boolean {
         if (!this.isCreating) return false;
         
@@ -501,7 +515,14 @@ export default class Polygon {
             const x = (clickX - this.canvasWindow.offsetX) / this.canvasWindow.scale;
             const y = (clickY - this.canvasWindow.offsetY) / this.canvasWindow.scale;
             
-            this._points.push({x, y});
+            const newPoint = {x, y};
+            this._points.push(newPoint);
+            
+            // Call undo/redo callback if provided
+            if (this.onPointAdded) {
+                this.onPointAdded(newPoint);
+            }
+            
             this.applyUserScale();
             this.updateBoundingBox();
             this.renderCallBack();
@@ -535,29 +556,21 @@ export default class Polygon {
             x: Math.max(0, Math.min(point.x, canvasW)),
             y: Math.max(0, Math.min(point.y, canvasH))
         }));
-        
-        this.updateBoundingBox();
+          this.updateBoundingBox();
         this.renderCallBack();
         
-        // Print coordinates of the polygon
-        console.log("Polygon coordinates:", this._points);
-        console.log("Number of points:", this._points.length);
-        console.log("Polygon area:", this.getArea());
-        console.log("Bounding box:", {
-            xmin: this._xmin,
-            ymin: this._ymin,
-            xmax: this._xmax,
-            ymax: this._ymax
-        });
-        
         this.onFinishCreation();
-    }
-
-    startResize(handleIndex: number, event: MouseEvent): void {
+    }startResize(handleIndex: number, event: MouseEvent): void {
         this.resizingHandleIndex = handleIndex;
         this.isResizing = true;
         this.offsetMouseX = event.clientX - this.resizeHandles[handleIndex].xmin;
         this.offsetMouseY = event.clientY - this.resizeHandles[handleIndex].ymin;
+        
+        // Call move start callback for undo/redo
+        if (this.onMoveStart) {
+            this.onMoveStart();
+        }
+        
         document.addEventListener("pointermove", this.handleResize);
         document.addEventListener("pointerup", this.stopResize);
     }
@@ -621,12 +634,15 @@ export default class Polygon {
             this.updateBoundingBox();
             this.renderCallBack();
         }
-    };
-
-    stopResize = (): void => {
+    };    stopResize = (): void => {
         this.isResizing = false;
         document.removeEventListener("pointermove", this.handleResize);
         document.removeEventListener("pointerup", this.stopResize);
+        
+        // Call move end callback for undo/redo
+        if (this.onMoveEnd) {
+            this.onMoveEnd();
+        }
     };
 
     onRotate(op: number): void {

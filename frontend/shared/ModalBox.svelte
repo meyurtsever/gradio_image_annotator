@@ -14,10 +14,11 @@
     export let currentColor = "";
     export let showRemove = true;
     export let labelDetailLock = false;
-    
-    const dispatch = createEventDispatcher<{
+      const dispatch = createEventDispatcher<{
 		change: object;
-	}>();
+	}>();    // Reactive statements to keep current values in sync with props
+    $: currentLabel = label || "";
+    $: currentColor = color || "";
 
     function dispatchChange(ret: number) {
         dispatch("change", {
@@ -26,9 +27,7 @@
             lock: labelDetailLock,
             ret: ret // -1: remove, 0: cancel, 1: change
         });
-    }
-
-    function onDropDownChange(event) {
+    }    function onDropDownChange(event) {
         const { detail } = event;
 		let choice = detail;
 
@@ -64,12 +63,11 @@
                 dispatchChange(1);
 				break;
 		}
-	}
-
-	onMount(() => {
+	}	onMount(() => {
 		document.addEventListener("keydown", handleKeyPress);
-        currentLabel = label;
-        currentColor = color;
+        // Set initial values from props, with fallbacks to first choice if available
+        currentLabel = label || (choices.length > 0 ? choices[0][0] : "");
+        currentColor = color || (choicesColors.length > 0 ? choicesColors[0] : "");
 	});
     
 	onDestroy(() => {

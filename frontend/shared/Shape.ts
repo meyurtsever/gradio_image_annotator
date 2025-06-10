@@ -19,6 +19,11 @@ export interface Shape {
         cursor: string;
     }[];
     
+    // Undo/redo support for drag operations
+    onMoveStart?: () => void;
+    onMoveEnd?: () => void;
+    initialStateForUndo?: any;
+    
     // Common methods
     setSelected(selected: boolean): void;
     setScaleFactor(scaleFactor: number): void;
