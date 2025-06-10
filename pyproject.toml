@@ -40,7 +40,7 @@ Issues = "https://github.com/edgarGracia/gradio_image_annotator/issues"
 dev = ["build", "twine"]
 
 [tool.hatch.build]
-artifacts = ["/backend/gradio_image_annotation/templates", "*.pyi", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates"]
+artifacts = ["/backend/gradio_image_annotation/templates", "*.pyi", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "backend/gradio_image_annotation/templates", "/c:\\Users\\Yurtsever\\Downloads\\gradio_image_annotator\\.conda\\Lib\\site-packages\\gradio_image_annotation\\templates", "/\\backend\\gradio_image_annotation\\templates"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["/backend/gradio_image_annotation"]

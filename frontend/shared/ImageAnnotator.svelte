@@ -170,10 +170,10 @@
 			/>
 		{/if}
 		{#if value !== null}
-			<div class:selectable class="image-frame">
-				<ImageCanvas
+			<div class:selectable class="image-frame">				<ImageCanvas
 					bind:value
 					on:change={() => dispatch("change")}
+					on:select={(e) => dispatch("select", { index: null, value: e.detail.coordinates })}
 					{height}
 					{width}
 					{boxesAlpha}

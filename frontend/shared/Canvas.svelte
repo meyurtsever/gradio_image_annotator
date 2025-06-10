@@ -61,9 +61,9 @@
 		label: "",
 		color: ""
 	};
-
 	const dispatch = createEventDispatcher<{
 		change: undefined;
+		select: { coordinates: [number, number] };
 	}>();
 
 	function colorHexToRGB(hex: string) {
@@ -148,8 +148,8 @@
 			clickBox(event);
 		}
 	}
-
 	function clickBox(event: PointerEvent) {
+		console.log("clickBox function called, mode:", mode === Mode.drag ? "drag" : "creation");
 		const rect = canvas.getBoundingClientRect();
 		const mouseX = event.clientX - rect.left;
 		const mouseY = event.clientY - rect.top;
@@ -165,7 +165,6 @@
 				return;
 			}
 		}
-
 		// Check if the mouse is inside a box
 		for (const [i, box] of value.boxes.entries()) {
 			if (box.isPointInsideBox(mouseX, mouseY)) {
@@ -175,12 +174,35 @@
 				return;
 			}
 		}
-
-		if (!singleBox) {
-			selectBox(-1);
-		}
-
 		if (!selectedBoxFlag) {
+			if (!singleBox) {
+				selectBox(-1);
+			}
+			
+			console.log("No box selected, checking if we should dispatch select event");
+			// Dispatch select event with coordinates when clicking on empty area in drag mode
+			if (mode === Mode.drag) {
+				console.log("Mode is drag, calculating coordinates");
+				const imageX = (mouseX - canvasWindow.offsetX) / scaleFactor / canvasWindow.scale;
+				const imageY = (mouseY - canvasWindow.offsetY) / scaleFactor / canvasWindow.scale;
+				
+				console.log("Click detected in drag mode:", { mouseX, mouseY, imageX, imageY, scaleFactor, "canvasWindow.scale": canvasWindow.scale, "canvasWindow.offsetX": canvasWindow.offsetX, "canvasWindow.offsetY": canvasWindow.offsetY });
+				
+				// Check if click is within the image bounds (using original image dimensions)
+				if (image && imageX >= 0 && imageX <= image.naturalWidth && imageY >= 0 && imageY <= image.naturalHeight) {
+					console.log("Dispatching select event with coordinates:", [Math.round(imageX), Math.round(imageY)]);
+					dispatch("select", { coordinates: [Math.round(imageX), Math.round(imageY)] });
+				} else {
+					console.log("Click outside image bounds or no image loaded", { 
+						hasImage: !!image, 
+						imageX, imageY, 
+						naturalWidth: image?.naturalWidth, 
+						naturalHeight: image?.naturalHeight 
+					});
+				}
+			} else {
+				console.log("Mode is not drag, mode:", mode);
+			}
 			canvasWindow.startDrag(event);
 		}
 	}
