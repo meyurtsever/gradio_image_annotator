@@ -6,3 +6,4 @@ export { default as Label } from "./Label.svelte";
 export { default as Lock } from "./Lock.svelte";
 export { default as Unlock } from "./Unlock.svelte";
 export { default as Freehand } from "./Freehand.svelte";
+export { default as Polygon } from "./Polygon.svelte";

@@ -81,14 +81,11 @@ def handle_change(evt):
 
 
 with gr.Blocks() as demo:
-    gr.Markdown("# Image Annotator Select Event Test")
-    gr.Markdown(\"\"\"
-    ## Instructions:
-    1. The image below is loaded with some existing bounding boxes
-    2. Click the **Hand icon** (drag/edit mode) if not already selected
-    3. Click somewhere **inside the image** but **outside existing boxes**
-    4. The coordinates of your click will appear in the text field below
-    \"\"\")
+    gr.Markdown("# Image Annotator with Multiple Drawing Tools")
+    
+    gr.Markdown("---")
+    gr.Markdown("### Click Coordinates (Hand Mode Only)")
+    gr.Markdown("Click somewhere **inside the image** but **outside existing boxes** to see coordinates:")
     
     test_annotator = image_annotator(
         example_annotation,

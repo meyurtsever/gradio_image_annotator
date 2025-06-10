@@ -5,6 +5,11 @@ export interface Shape {
     isSelected: boolean;
     scaleFactor: number;
     
+    // Creation state (for polygons and other complex shapes)
+    isCreating?: boolean;
+    _points?: Array<{x: number, y: number}>;
+    minPoints?: number;
+    
     // Resize handles for interaction
     resizeHandles: {
         xmin: number;

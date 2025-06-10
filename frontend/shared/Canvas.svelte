@@ -1,15 +1,16 @@
 <script lang="ts">
-    import { onMount, onDestroy, createEventDispatcher } from "svelte";
-	import { BoundingBox, Hand, Trash, Label, Freehand } from "./icons/index";
+	import { onMount, onDestroy, createEventDispatcher } from "svelte";
+	import { BoundingBox, Hand, Trash, Label, Freehand, Polygon } from "./icons/index";
 	import ModalBox from "./ModalBox.svelte";
 	import Box from "./Box";
 	import FreehandPath from "./FreehandPath";
+	import PolygonShape from "./Polygon";
 	import { Colors } from './Colors.js';
 	import AnnotatedImageData from "./AnnotatedImageData";
 	import { Undo, Redo } from "@gradio/icons";
 	import WindowViewer from "./WindowViewer";
 
-	enum Mode {creation, drag, freehand}
+	enum Mode {creation, drag, freehand, polygon}
 
     export let imageUrl: string | null = null;
 	export let interactive: boolean;
@@ -51,10 +52,10 @@
 
 	let imageWidth = 0;
 	let imageHeight = 0;
-
 	let editModalVisible = false;
 	let newModalVisible = false;
 	let editDefaultLabelVisible = false;
+	let currentPolygon: PolygonShape | null = null; // Track current polygon being created
 
 	let labelDetailLock = useDefaultLabel;
 	let defaultLabelCache = {
@@ -126,10 +127,9 @@
 		value.boxes.forEach(box => {box.setSelected(false);});
 		if (index >= 0 && index < value.boxes.length){
 			value.boxes[index].setSelected(true);
-		}
-		draw();
+		}		draw();
 	}
-
+	
 	function handlePointerDown(event: PointerEvent) {
 		if (!interactive) {
 			return;
@@ -145,6 +145,8 @@
 			createBox(event);
 		} else if (mode === Mode.freehand) {
 			createFreehandPath(event);
+		} else if (mode === Mode.polygon) {
+			handlePolygonClick(event);
 		} else if (mode === Mode.drag) {
 			clickBox(event);
 		}
@@ -234,7 +236,6 @@
 
 		canvas.style.cursor = "default";
 	}
-
 	function handleKeyPress(event: KeyboardEvent) {
 		if (!interactive) {
 			return;
@@ -243,6 +244,14 @@
 		switch (event.key) {
 			case "Delete":
 				onDeleteBox();
+				break;
+			case " ": // Space key
+				if (mode === Mode.polygon && currentPolygon && currentPolygon.isCreating) {
+					event.preventDefault();
+					if (currentPolygon._points.length >= currentPolygon.minPoints) {
+						currentPolygon.finishCreating();
+					}
+				}
 				break;
 		}
 	}
@@ -308,6 +317,65 @@
 		draw();
 		dispatch("change");
 	}
+	function handlePolygonClick(event: PointerEvent) {
+		if (currentPolygon === null) {
+			// Start creating a new polygon
+			createPolygon(event);
+		} else {
+			// Add point to existing polygon or finish if conditions are met
+			const finished = currentPolygon.addPoint(event);
+			if (!finished) {
+				// Continue creating - just redraw
+				draw();
+				dispatch("change");
+			}
+			// If finished is true, the polygon's finishCreating method will handle completion
+		}
+	}
+	function createPolygon(event: PointerEvent) {
+		const rect = canvas.getBoundingClientRect();
+		let color;
+		if (choicesColors.length > 0) {
+			color = colorHexToRGB(choicesColors[0]);
+		} else if (singleBox) {
+			if (value.boxes.length > 0) {
+				color = value.boxes[0].color;
+			} else {
+				color = Colors[0];
+			}
+		} else {
+			color = Colors[value.boxes.length % Colors.length];
+		}
+		
+		let polygon = new PolygonShape(
+			draw,
+			onPolygonFinishCreation,
+			canvasWindow,
+			canvasXmin,
+			canvasYmin,
+			canvasXmax,
+			canvasYmax,
+			"",
+			color,
+			boxAlpha,
+			boxMinSize,
+			handleSize,
+			boxThickness,
+			boxSelectedThickness
+		);
+		
+		currentPolygon = polygon; // Set the current polygon being created
+		
+		polygon.startCreating(event, rect.left, rect.top);
+		if (singleBox) {
+			value.boxes = [polygon];
+		} else {
+			value.boxes = [polygon, ...value.boxes];
+		}
+		selectBox(0);
+		draw();
+		dispatch("change");
+	}
 
 	function createBox(event: PointerEvent) {
 		const rect = canvas.getBoundingClientRect();
@@ -366,6 +434,11 @@
 		canvas.style.cursor = "crosshair";
 	}
 
+	function setPolygonMode() {
+		mode = Mode.polygon;
+		canvas.style.cursor = "crosshair";
+	}
+
 	function setDragMode() {
 		mode = Mode.drag;
 		canvas.style.cursor = "default";
@@ -386,6 +459,27 @@
 				if (singleBox) {
 					setDragMode();
 				}
+			}
+		}
+	}
+
+	function onPolygonFinishCreation() {
+		// Reset the current polygon since creation is finished
+		currentPolygon = null;
+		
+		if (selectedBox >= 0 && selectedBox < value.boxes.length) {
+			if (value.boxes[selectedBox].getArea() < 1) {
+				onDeleteBox();
+			} else {
+				if (!disableEditBoxes) {
+					if (labelDetailLock) {
+						onUseDefaultLabelModalNew();
+					} else{
+						newModalVisible = true;
+					}
+				}
+				// Always switch to drag mode after polygon creation
+				setDragMode();
 			}
 		}
 	}
@@ -554,11 +648,10 @@
 			dispatch("change");
 		}
 	}
-	const observer = new ResizeObserver(resize);
-	function parseInputBoxes() {
+	const observer = new ResizeObserver(resize);	function parseInputBoxes() {
 		for (let i = 0; i < value.boxes.length; i++) {
 			let box = value.boxes[i];
-			if (!(box instanceof Box) && !(box instanceof FreehandPath)) {
+			if (!(box instanceof Box) && !(box instanceof FreehandPath) && !(box instanceof PolygonShape)) {
 				let color = "";
 				let label = "";
 				if (box.hasOwnProperty("color")) {
@@ -594,6 +687,27 @@
 					freehandPath._points = box["points"];
 					freehandPath.updateBoundingBox();
 					box = freehandPath;
+				} else if (box.hasOwnProperty("type") && box["type"] === "polygon" && box.hasOwnProperty("points")) {
+					// Handle polygon shapes
+					let polygon = new PolygonShape(
+						draw,
+						onBoxFinishCreation,
+						canvasWindow,
+						canvasXmin,
+						canvasYmin,
+						canvasXmax,
+						canvasYmax,
+						label,
+						color,
+						boxAlpha,
+						boxMinSize,
+						handleSize,
+						boxThickness,
+						boxSelectedThickness
+					);
+					polygon._points = box["points"];
+					polygon.updateBoundingBox();
+					box = polygon;
 				} else {
 					// Regular box
 					box = new Box(
@@ -699,8 +813,7 @@
 	></canvas>
 </div>
 
-{#if interactive}
-	<span class="canvas-control">		<button
+{#if interactive}	<span class="canvas-control">		<button
 			class="icon"
 			class:selected={mode === Mode.creation}
 			aria-label="Create box"
@@ -711,6 +824,12 @@
 			class:selected={mode === Mode.freehand}
 			aria-label="Freehand drawing"
 			on:click={() => setFreehandMode()}><Freehand/></button
+		>
+		<button
+			class="icon"
+			class:selected={mode === Mode.polygon}
+			aria-label="Polygon drawing"
+			on:click={() => setPolygonMode()}><Polygon/></button
 		>
 		<button
 			class="icon"
