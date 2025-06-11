@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { onMount, onDestroy, createEventDispatcher } from "svelte";
-	import { BoundingBox, Hand, Trash, Label, Freehand, Polygon } from "./icons/index";
+	import { onMount, onDestroy, createEventDispatcher } from "svelte";	import { BoundingBox, Hand, Trash, Label, Freehand, Polygon, Erase } from "./icons/index";
 	import ModalBox from "./ModalBox.svelte";
 	import Box from "./Box";
 	import FreehandPath from "./FreehandPath";
 	import PolygonShape from "./Polygon";
+	import Eraser from "./Eraser";
 	import { Colors } from './Colors.js';
 	import AnnotatedImageData from "./AnnotatedImageData";
 	import { Undo, Redo } from "@gradio/icons";
 	import WindowViewer from "./WindowViewer";
-	enum Mode {creation, drag, freehand, polygon}
+	enum Mode {creation, drag, freehand, polygon, erase}
 	// Undo/Redo system
 	interface UndoRedoAction {
 		type: 'create_shape' | 'delete_shape' | 'edit_shape' | 'polygon_point' | 'move_shape' | 'resize_shape';
@@ -49,10 +49,10 @@
 
     let canvas: HTMLCanvasElement;
 	let ctx: CanvasRenderingContext2D;
-    let image = null;
-	let selectedBox = -1;
+    let image = null;	let selectedBox = -1;
 	let mode: Mode = Mode.drag;
 	let canvasWindow: WindowViewer = new WindowViewer(draw);
+	let eraser: Eraser;
 	if (value !== null && value.boxes.length == 0) {
 		mode = Mode.creation;
 	}
@@ -128,9 +128,13 @@
 				ctx.restore();
 				// ctx.resetTransform();
 			}
-			
-			for (const box of value.boxes.slice().reverse()) {
+					for (const box of value.boxes.slice().reverse()) {
 				box.render(ctx);
+			}
+			
+			// Render the erase path if erasing
+			if (mode === Mode.erase && eraser) {
+				eraser.renderErasePath(ctx);
 			}
 		}
 	}
@@ -155,13 +159,14 @@
 			event.target.hasPointerCapture(event.pointerId)
 		) {
 			event.target.releasePointerCapture(event.pointerId);
-		}
-		if (mode === Mode.creation) {
+		}		if (mode === Mode.creation) {
 			createBox(event);
 		} else if (mode === Mode.freehand) {
 			createFreehandPath(event);
 		} else if (mode === Mode.polygon) {
 			handlePolygonClick(event);
+		} else if (mode === Mode.erase) {
+			startErase(event);
 		} else if (mode === Mode.drag) {
 			clickBox(event);
 		}
@@ -261,15 +266,22 @@
 			canvasWindow.startDrag(event);
 		}
 	}
-
 	function handlePointerUp(event: PointerEvent) {
+		if (mode === Mode.erase && eraser) {
+			endErase();
+		}
 		dispatch("change");
 	}
-
 	function handlePointerMove(event: PointerEvent) {
 		if (value === null) {
 			return;
 		}
+		
+		if (mode === Mode.erase && eraser) {
+			continueErase(event);
+			return;
+		}
+		
 		if (mode !== Mode.drag) {
 			return;
 		}
@@ -287,7 +299,7 @@
 		}
 
 		canvas.style.cursor = "default";
-	}	function handleKeyPress(event: KeyboardEvent) {
+	}function handleKeyPress(event: KeyboardEvent) {
 		if (!interactive) {
 			return;
 		}
@@ -429,8 +441,7 @@
 					});
 				}
 				break;
-				
-			case 'edit_shape':
+						case 'edit_shape':
 				// Restore previous shape state
 				if (action.shapeIndex !== undefined && action.oldShapeData && action.shapeIndex < value.boxes.length) {
 					const currentShapeData = cloneShapeData(value.boxes[action.shapeIndex]);
@@ -438,6 +449,23 @@
 					redoStack.push({
 						type: 'edit_shape',
 						shapeIndex: action.shapeIndex,
+						oldShapeData: currentShapeData,
+						shapeData: action.shapeData,
+						timestamp: Date.now()
+					});
+				} else if (action.shapeIndex === -1 && action.oldShapeData) {
+					// Handle multiple shapes case (like erase operations)
+					const currentShapeData = value.boxes.map(shape => cloneShapeData(shape));
+					value.boxes = [];
+					for (const shapeData of action.oldShapeData) {
+						const restoredShape = restoreShapeFromData(shapeData);
+						if (restoredShape) {
+							value.boxes.push(restoredShape);
+						}
+					}
+					redoStack.push({
+						type: 'edit_shape',
+						shapeIndex: -1,
 						oldShapeData: currentShapeData,
 						shapeData: action.shapeData,
 						timestamp: Date.now()
@@ -515,8 +543,7 @@
 					});
 				}
 				break;
-				
-			case 'edit_shape':
+						case 'edit_shape':
 				// Restore the edited state
 				if (action.shapeIndex !== undefined && action.shapeData && action.shapeIndex < value.boxes.length) {
 					const currentShapeData = cloneShapeData(value.boxes[action.shapeIndex]);
@@ -524,6 +551,23 @@
 					undoStack.push({
 						type: 'edit_shape',
 						shapeIndex: action.shapeIndex,
+						oldShapeData: currentShapeData,
+						shapeData: action.oldShapeData,
+						timestamp: Date.now()
+					});
+				} else if (action.shapeIndex === -1 && action.shapeData) {
+					// Handle multiple shapes case (like erase operations)
+					const currentShapeData = value.boxes.map(shape => cloneShapeData(shape));
+					value.boxes = [];
+					for (const shapeData of action.shapeData) {
+						const restoredShape = restoreShapeFromData(shapeData);
+						if (restoredShape) {
+							value.boxes.push(restoredShape);
+						}
+					}
+					undoStack.push({
+						type: 'edit_shape',
+						shapeIndex: -1,
 						oldShapeData: currentShapeData,
 						shapeData: action.oldShapeData,
 						timestamp: Date.now()
@@ -859,7 +903,93 @@
 		selectBox(0);
 		draw();
 		dispatch("change");
-	}	function setCreateMode() {
+	}	function startErase(event: PointerEvent) {
+		if (!eraser) {
+			eraser = new Eraser(canvasWindow, scaleFactor);
+		}
+		eraser.setScaleFactor(scaleFactor);
+		
+		const rect = canvas.getBoundingClientRect();
+		eraser.startErase(event, rect);
+		draw(); // Redraw to show the erase path
+	}
+
+	function continueErase(event: PointerEvent) {
+		if (!eraser) return;
+		
+		const rect = canvas.getBoundingClientRect();
+		eraser.continueErase(event, rect);
+		draw(); // Redraw to show the erase path
+	}
+
+	function endErase() {
+		if (!eraser) return;
+		
+		const erasePath = eraser.endErase();
+		if (erasePath.length === 0) {
+			// Automatically switch back to drag mode after erase operation
+			setDragMode();
+			return;
+		}
+		
+		// Store original shapes for undo
+		const originalShapes = [...value.boxes];
+		const shapesToRemove: number[] = [];
+		const shapesToAdd: (Box | FreehandPath | PolygonShape)[] = [];
+				// Apply erase to each shape
+		for (let i = 0; i < value.boxes.length; i++) {
+			const shape = value.boxes[i];
+			const resultShapes = eraser.eraseFromShape(shape as (Box | FreehandPath | PolygonShape), erasePath);
+			
+			if (resultShapes.length === 0) {
+				// Shape completely erased
+				shapesToRemove.push(i);
+			} else if (resultShapes.length === 1 && resultShapes[0] === shape) {
+				// Shape unchanged
+				continue;
+			} else {
+				// Shape modified or split
+				shapesToRemove.push(i);
+				shapesToAdd.push(...resultShapes);
+			}
+		}
+		
+		// Apply changes if any shapes were affected
+		if (shapesToRemove.length > 0 || shapesToAdd.length > 0) {
+			// Add undo action for the erase operation
+			addUndoAction({
+				type: 'edit_shape',
+				shapeIndex: -1, // Special case for multiple shapes
+				oldShapeData: originalShapes.map(shape => cloneShapeData(shape)),
+				shapeData: null // Will be filled after modification
+			});
+			
+			// Remove shapes in reverse order to maintain indices
+			for (let i = shapesToRemove.length - 1; i >= 0; i--) {
+				value.boxes.splice(shapesToRemove[i], 1);
+			}
+			
+			// Add new shapes
+			value.boxes.push(...shapesToAdd);
+			
+			// Update the undo action with final state
+			if (undoStack.length > 0) {
+				const lastAction = undoStack[undoStack.length - 1];
+				if (lastAction.type === 'edit_shape' && lastAction.shapeIndex === -1) {
+					lastAction.shapeData = value.boxes.map(shape => cloneShapeData(shape));
+				}
+			}
+			
+			selectBox(-1);
+			dispatch("change");
+		}
+		
+		draw();
+		
+		// Automatically switch back to drag mode after erase operation
+		setDragMode();
+	}
+	function setCreateMode() {
 		mode = Mode.creation;
 		canvas.style.cursor = "crosshair";
 		// Reset polygon state when switching modes
@@ -878,6 +1008,13 @@
 		canvas.style.cursor = "crosshair";
 		// Don't reset currentPolygon when switching TO polygon mode
 		// Only reset when switching away from it
+	}
+
+	function setEraseMode() {
+		mode = Mode.erase;
+		canvas.style.cursor = "crosshair";
+		// Reset polygon state when switching modes
+		currentPolygon = null;
 	}
 
 	function setDragMode() {
@@ -1349,12 +1486,17 @@
 			class:selected={mode === Mode.freehand}
 			aria-label="Freehand drawing"
 			on:click={() => setFreehandMode()}><Freehand/></button
-		>
-		<button
+		>		<button
 			class="icon"
 			class:selected={mode === Mode.polygon}
 			aria-label="Polygon drawing (click points, Space/start point to finish)"
 			on:click={() => setPolygonMode()}><Polygon/></button
+		>
+		<button
+			class="icon"
+			class:selected={mode === Mode.erase}
+			aria-label="Erase areas from shapes"
+			on:click={() => setEraseMode()}><Erase/></button
 		>
 		<button
 			class="icon"

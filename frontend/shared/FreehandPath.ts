@@ -50,6 +50,9 @@ export default class FreehandPath {
     _ymin: number;
     _xmax: number;
     _ymax: number;
+    
+    // Erase data for mask-based erasing
+    eraseData?: boolean[];
 
     constructor(
         renderCallBack: () => void,
@@ -266,29 +269,41 @@ export default class FreehandPath {
 
         this.updateOffset();
         
-        // Draw and fill the freehand path
-        ctx.beginPath();
-        for (let i = 0; i < this.points.length; i++) {
-            const [x, y] = this.toCanvasCoordinates(this.points[i].x, this.points[i].y);
-            if (i === 0) {
-                ctx.moveTo(x, y);
-            } else {
-                ctx.lineTo(x, y);
+        // Check if this freehand has erase data
+        if (this.eraseData && Array.isArray(this.eraseData)) {
+            // Render with erase mask - only draw visible segments
+            this.renderWithEraseMask(ctx, this.eraseData.map(erased => !erased));
+        } else {
+            // Normal rendering - draw and fill the freehand path
+            ctx.beginPath();
+            for (let i = 0; i < this.points.length; i++) {
+                const [x, y] = this.toCanvasCoordinates(this.points[i].x, this.points[i].y);
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
             }
+            // Close the path for filling
+            ctx.closePath();
+            
+            // Fill the path with color and alpha (like rectangles)
+            ctx.fillStyle = setAlpha(this.color, this.alpha);
+            ctx.fill();
+            
+            // Draw the border
+            ctx.lineWidth = this.isSelected ? this.selectedThickness : this.thickness;
+            ctx.strokeStyle = setAlpha(this.color, 1);
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            ctx.stroke();
         }
-        // Close the path for filling
-        ctx.closePath();
         
-        // Fill the path with color and alpha (like rectangles)
-        ctx.fillStyle = setAlpha(this.color, this.alpha);
-        ctx.fill();
-        
-        // Draw the border
-        ctx.lineWidth = this.isSelected ? this.selectedThickness : this.thickness;
-        ctx.strokeStyle = setAlpha(this.color, 1);
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        ctx.stroke();// Render the label and background
+        this.renderLabel(ctx);
+        this.renderHandles(ctx);
+    }
+    private renderLabel(ctx: CanvasRenderingContext2D): void {
+        // Render the label and background
         if (this.label !== null && this.label.trim() !== "") {
             if (this.isSelected) {
                 ctx.font = "bold 14px Arial";
@@ -308,7 +323,9 @@ export default class FreehandPath {
             ctx.fillStyle = "black";
             ctx.fillText(this.label, labelX + 5, labelY + 15);
         }
-
+    }
+    
+    private renderHandles(ctx: CanvasRenderingContext2D): void {
         // Render the handles if selected
         if (this.isSelected) {
             ctx.fillStyle = setAlpha(this.color, 1);
@@ -322,7 +339,7 @@ export default class FreehandPath {
                 );
             }
         }
-    }    startDrag(event: MouseEvent): void {
+    }startDrag(event: MouseEvent): void {
         this.isDragging = true;
         this.offsetMouseX = event.clientX - this._xmin * this.canvasWindow.scale;
         this.offsetMouseY = event.clientY - this._ymin * this.canvasWindow.scale;
@@ -564,5 +581,90 @@ export default class FreehandPath {
         this._points = rotatedPoints;
         this.updateBoundingBox();
         this.applyUserScale();
+    }
+    
+    /**
+     * Render freehand path with erase mask applied
+     */
+    private renderWithEraseMask(ctx: CanvasRenderingContext2D, pointVisibility: boolean[]): void {
+        // Draw only the visible segments
+        ctx.lineWidth = this.isSelected ? this.selectedThickness : this.thickness;
+        ctx.strokeStyle = setAlpha(this.color, 1);
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        
+        // Find continuous visible segments and draw them
+        let pathStarted = false;
+        for (let i = 0; i < this.points.length; i++) {
+            const [x, y] = this.toCanvasCoordinates(this.points[i].x, this.points[i].y);
+            const isVisible = i < pointVisibility.length ? pointVisibility[i] : true;
+            
+            if (isVisible) {
+                if (!pathStarted) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    pathStarted = true;
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            } else {
+                if (pathStarted) {
+                    // End current path and stroke it
+                    ctx.stroke();
+                    pathStarted = false;
+                }
+            }
+        }
+        
+        // Stroke the final path if it was started
+        if (pathStarted) {
+            ctx.stroke();
+        }
+        
+        // For filled areas, we need to create closed paths for each visible segment
+        if (this.alpha > 0) {
+            ctx.fillStyle = setAlpha(this.color, this.alpha);
+            
+            // Find continuous visible segments
+            let currentSegment: number[] = [];
+            for (let i = 0; i < this.points.length; i++) {
+                const isVisible = i < pointVisibility.length ? pointVisibility[i] : true;
+                
+                if (isVisible) {
+                    currentSegment.push(i);
+                } else {
+                    if (currentSegment.length >= 3) {
+                        this.drawFilledSegment(ctx, currentSegment);
+                    }
+                    currentSegment = [];
+                }
+            }
+            
+            // Draw the final segment if it has enough points
+            if (currentSegment.length >= 3) {
+                this.drawFilledSegment(ctx, currentSegment);
+            }
+        }
+    }
+    
+    /**
+     * Draw a filled segment for a continuous visible portion
+     */
+    private drawFilledSegment(ctx: CanvasRenderingContext2D, segmentIndices: number[]): void {
+        if (segmentIndices.length < 3) return;
+        
+        ctx.beginPath();
+        for (let i = 0; i < segmentIndices.length; i++) {
+            const pointIndex = segmentIndices[i];
+            const [x, y] = this.toCanvasCoordinates(this.points[pointIndex].x, this.points[pointIndex].y);
+            
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        }
+        ctx.closePath();
+        ctx.fill();
     }
 }
