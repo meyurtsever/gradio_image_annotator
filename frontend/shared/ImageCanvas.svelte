@@ -22,10 +22,10 @@
 	export let boxSelectedThickness: number;
 	export let value: null | AnnotatedImageData;
 	export let disableEditBoxes: boolean;
-	export let singleBox: boolean;
-	export let showRemoveButton: boolean;
+	export let singleBox: boolean;	export let showRemoveButton: boolean;
 	export let handlesCursor: boolean;
 	export let useDefaultLabel: boolean;
+	export let shapeCreationMode: string;
 
 	let resolved_src: typeof src;
 
@@ -71,9 +71,9 @@
 	{boxThickness}
 	{boxSelectedThickness}
 	{disableEditBoxes}
-	{singleBox}
-	{showRemoveButton}
+	{singleBox}	{showRemoveButton}
 	{handlesCursor}
 	{useDefaultLabel}
+	{shapeCreationMode}
 	imageUrl={resolved_src}
 />

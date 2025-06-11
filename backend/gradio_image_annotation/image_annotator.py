@@ -37,7 +37,9 @@ def rgb2hex(r,g,b):
 
 class image_annotator(Component):
     """
-    Creates a component to annotate images with bounding boxes. The bounding boxes can be created and edited by the user or be passed by code.
+    Creates a component to annotate images with multiple shape types including bounding boxes, freehand paths, circles, and polygons. 
+    The shapes can be created and edited by the user or be passed by code. Features include advanced undo/redo system, 
+    pixel-based eraser functionality, and customizable drawing modes.
     It is also possible to predefine a set of valid classes and colors.
     """
 
@@ -90,10 +92,16 @@ class image_annotator(Component):
         show_remove_button: bool | None = None,
         handles_cursor: bool | None = True,
         use_default_label: bool = False,
+        # New parameters for enhanced features
+        eraser_size: int = 10,
+        enable_freehand: bool = True,
+        enable_circle: bool = True,
+        enable_polygon: bool = True,        enable_eraser: bool = True,
+        shape_creation_mode: Literal["drag", "box", "freehand", "circle", "polygon"] = "drag",
     ):
         """
         Parameters:
-            value: A dict or None. The dictionary must contain a key 'image' with either an URL to an image, a numpy image or a PIL image. Optionally it may contain a key 'boxes' with a list of boxes. Each box must be a dict wit the keys: 'xmin', 'ymin', 'xmax' and 'ymax' with the absolute image coordinates of the box. Optionally can also include the keys 'label' and 'color' describing the label and color of the box. Color must be a tuple of RGB values (e.g. `(255,255,255)`). Optionally can also include the keys 'orientation' with a integer between 0 and 3, describing the number of times the image is rotated by 90 degrees in frontend, the rotation is clockwise.
+            value: A dict or None. The dictionary must contain a key 'image' with either an URL to an image, a numpy image or a PIL image. Optionally it may contain a key 'boxes' with a list of boxes. Each box must be a dict with the keys based on shape type: For regular boxes: 'xmin', 'ymin', 'xmax' and 'ymax' with the absolute image coordinates. For freehand paths: 'type' set to 'freehand', 'points' array with x,y coordinates, and 'label'. For circles: 'type' set to 'circle', 'centerX', 'centerY', 'radius', and 'label'. For polygons: 'type' set to 'polygon', 'points' array with x,y coordinates, and 'label'. All boxes can optionally include 'label' and 'color' keys. Color must be a tuple of RGB values (e.g. `(255,255,255)`). Optionally can also include the keys 'orientation' with an integer between 0 and 3, describing the number of times the image is rotated by 90 degrees in frontend, the rotation is clockwise.
             boxes_alpha: Opacity of the bounding boxes 0 and 1.
             label_list: List of valid labels.
             label_colors: Optional list of colors for each label when `label_list` is used. Colors must be a tuple of RGB values (e.g. `(255,255,255)`).
@@ -124,6 +132,11 @@ class image_annotator(Component):
             show_remove_button: If True, will show a button to remove the selected bounding box.
             handles_cursor: If True, the cursor will change when hovering over box handles in drag mode. Can be CPU-intensive.
             use_default_label: If True, the first item in label_list will be used as the default label when creating boxes.
+            eraser_size: Default size of the eraser brush in pixels.
+            enable_freehand: If True, enables freehand drawing mode.
+            enable_circle: If True, enables circle drawing mode.
+            enable_polygon: If True, enables polygon drawing mode.            enable_eraser: If True, enables eraser mode for pixel-based shape erasing.
+            shape_creation_mode: Default shape creation mode when the component is first loaded. Options: "drag" (default), "box", "freehand", "circle", "polygon".
         """
 
         valid_types = ["numpy", "pil", "filepath"]
@@ -159,6 +172,14 @@ class image_annotator(Component):
         self.show_remove_button = show_remove_button
         self.handles_cursor = handles_cursor
         self.use_default_label = use_default_label
+
+        # Enhanced features
+        self.eraser_size = eraser_size
+        self.enable_freehand = enable_freehand
+        self.enable_circle = enable_circle
+        self.enable_polygon = enable_polygon
+        self.enable_eraser = enable_eraser
+        self.shape_creation_mode = shape_creation_mode
 
         self.boxes_alpha = boxes_alpha
         self.box_min_size = box_min_size
@@ -242,6 +263,9 @@ class image_annotator(Component):
 
     def preprocess_boxes(self, boxes: List[dict] | None) -> list:
         parsed_boxes = []
+        if boxes is None:
+            return parsed_boxes
+            
         for box in boxes:
             new_box = {}
             new_box["label"] = box.get("label", "")
@@ -251,10 +275,43 @@ class image_annotator(Component):
                 if match:
                     new_box["color"] = tuple(int(match.group(i)) for i in range(1, 4))
             scale_factor = box.get("scaleFactor", 1)
-            new_box["xmin"] = round(box["xmin"] / scale_factor)
-            new_box["ymin"] = round(box["ymin"] / scale_factor)
-            new_box["xmax"] = round(box["xmax"] / scale_factor)
-            new_box["ymax"] = round(box["ymax"] / scale_factor)
+            
+            # Handle different shape types
+            if box.get("type") == "freehand" and "points" in box:
+                # Freehand path - store points and bounding box
+                new_box["type"] = "freehand"
+                new_box["points"] = box["points"]
+                new_box["xmin"] = round(box.get("xmin", 0) / scale_factor)
+                new_box["ymin"] = round(box.get("ymin", 0) / scale_factor)
+                new_box["xmax"] = round(box.get("xmax", 0) / scale_factor)
+                new_box["ymax"] = round(box.get("ymax", 0) / scale_factor)
+            elif box.get("type") == "polygon" and "points" in box:
+                # Polygon shape - store points and bounding box
+                new_box["type"] = "polygon"
+                new_box["points"] = box["points"]
+                new_box["xmin"] = round(box.get("xmin", 0) / scale_factor)
+                new_box["ymin"] = round(box.get("ymin", 0) / scale_factor)
+                new_box["xmax"] = round(box.get("xmax", 0) / scale_factor)
+                new_box["ymax"] = round(box.get("ymax", 0) / scale_factor)
+            elif box.get("type") == "circle" and all(k in box for k in ["centerX", "centerY", "radius"]):
+                # Circle shape - store center and radius
+                new_box["type"] = "circle"
+                new_box["centerX"] = round(box["centerX"] / scale_factor)
+                new_box["centerY"] = round(box["centerY"] / scale_factor)
+                new_box["radius"] = round(box["radius"] / scale_factor)
+                # Calculate bounding box for circle
+                new_box["xmin"] = round((box["centerX"] - box["radius"]) / scale_factor)
+                new_box["ymin"] = round((box["centerY"] - box["radius"]) / scale_factor)
+                new_box["xmax"] = round((box["centerX"] + box["radius"]) / scale_factor)
+                new_box["ymax"] = round((box["centerY"] + box["radius"]) / scale_factor)
+            else:
+                # Regular bounding box
+                new_box["type"] = "box"
+                new_box["xmin"] = round(box["xmin"] / scale_factor)
+                new_box["ymin"] = round(box["ymin"] / scale_factor)
+                new_box["xmax"] = round(box["xmax"] / scale_factor)
+                new_box["ymax"] = round(box["ymax"] / scale_factor)
+            
             parsed_boxes.append(new_box)
         return parsed_boxes
 
@@ -295,13 +352,28 @@ class image_annotator(Component):
                 raise ValueError(f"'boxes' must be a list of dicts. Got "
                                  f"{type(value['boxes'])}")
             for box in value["boxes"]:
-                if (not isinstance(box, dict)
-                    or not set(box.keys()).issubset({"label", "xmin", "ymin", "xmax", "ymax", "color"})
-                    or not set(box.keys()).issuperset({"xmin", "ymin", "xmax", "ymax"})
-                    ):
-                    raise ValueError("Box must be a dict with the following "
-                                     "keys: 'xmin', 'ymin', 'xmax', 'ymax', "
-                                     f"['label', 'color']'. Got {box}")
+                if not isinstance(box, dict):
+                    raise ValueError("Box must be a dict")
+                
+                # Validate based on shape type
+                box_type = box.get("type", "box")
+                
+                if box_type == "freehand":
+                    required_keys = {"type", "points", "label"}
+                    if not required_keys.issubset(box.keys()):
+                        raise ValueError(f"Freehand box must contain keys: {required_keys}. Got {box.keys()}")
+                elif box_type == "polygon":
+                    required_keys = {"type", "points", "label"}
+                    if not required_keys.issubset(box.keys()):
+                        raise ValueError(f"Polygon box must contain keys: {required_keys}. Got {box.keys()}")
+                elif box_type == "circle":
+                    required_keys = {"type", "centerX", "centerY", "radius", "label"}
+                    if not required_keys.issubset(box.keys()):
+                        raise ValueError(f"Circle box must contain keys: {required_keys}. Got {box.keys()}")
+                else:  # box type
+                    required_keys = {"xmin", "ymin", "xmax", "ymax"}
+                    if not required_keys.issubset(box.keys()):
+                        raise ValueError(f"Box must contain keys: {required_keys}. Got {box.keys()}")
 
         # Check and parse image
         image = value.setdefault("image", None)
@@ -351,6 +423,39 @@ class image_annotator(Component):
                     "ymax": 500,
                     "label": "Gradio",
                     "color": (250,185,0),
+                    "type": "box"
+                },
+                {
+                    "type": "freehand",
+                    "points": [{"x": 100, "y": 100}, {"x": 150, "y": 120}, {"x": 200, "y": 100}],
+                    "label": "Freehand Path",
+                    "color": (0, 255, 0),
+                    "xmin": 100,
+                    "ymin": 100,
+                    "xmax": 200,
+                    "ymax": 120
+                },
+                {
+                    "type": "circle", 
+                    "centerX": 300,
+                    "centerY": 200,
+                    "radius": 50,
+                    "label": "Circle",
+                    "color": (255, 0, 0),
+                    "xmin": 250,
+                    "ymin": 150,
+                    "xmax": 350,
+                    "ymax": 250
+                },
+                {
+                    "type": "polygon",
+                    "points": [{"x": 400, "y": 300}, {"x": 450, "y": 320}, {"x": 430, "y": 350}, {"x": 380, "y": 340}],
+                    "label": "Polygon",
+                    "color": (0, 0, 255),
+                    "xmin": 380,
+                    "ymin": 300,
+                    "xmax": 450,
+                    "ymax": 350
                 }
             ]
         }

@@ -47,9 +47,9 @@
 	export let box_selected_thickness: number;
 	export let disable_edit_boxes: boolean;
 	export let single_box: boolean;
-	export let show_remove_button: boolean;
-	export let handles_cursor: boolean;
+	export let show_remove_button: boolean;	export let handles_cursor: boolean;
 	export let use_default_label: boolean;
+	export let shape_creation_mode: string;
 
 	export let gradio: Gradio<{
 		change: never;
@@ -125,10 +125,10 @@
 		boxThickness={box_thickness}
 		boxSelectedThickness={box_selected_thickness}
 		disableEditBoxes={disable_edit_boxes}
-		singleBox={single_box}
-		showRemoveButton={show_remove_button}
+		singleBox={single_box}		showRemoveButton={show_remove_button}
 		handlesCursor={handles_cursor}
 		useDefaultLabel={use_default_label}
+		shapeCreationMode={shape_creation_mode}
 	>
 		{#if active_source === "upload"}
 			<UploadText i18n={gradio.i18n} type="image" />

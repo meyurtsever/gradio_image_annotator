@@ -51,6 +51,7 @@ with gr.Blocks() as demo:
         example_annotation,
         label_list=["Person", "Vehicle"],
         label_colors=[(0, 255, 0), (255, 0, 0)],
+        shape_creation_mode="drag",  # Set to 'hand' mode for click events
     )
     
     coordinates_display = gr.Textbox(

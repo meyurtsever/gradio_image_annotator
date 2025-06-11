@@ -39,9 +39,9 @@
 	export let handlesCursor: boolean;
 	export let boxSelectedThickness: number;
 	export let max_file_size: number | null = null;
-	export let cli_upload: Client["upload"];
-	export let stream_handler: Client["stream_factory"];
+	export let cli_upload: Client["upload"];	export let stream_handler: Client["stream_factory"];
 	export let useDefaultLabel: boolean;
+	export let shapeCreationMode: string;
 
 	let upload: Upload;
 	let uploading = false;
@@ -185,12 +185,12 @@
 					{boxThickness}
 					{singleBox}
 					{disableEditBoxes}
-					{showRemoveButton}
-					{handlesCursor}
-					{boxSelectedThickness}
-					{useDefaultLabel}
-					src={value.image.url}
-				/>
+					{showRemoveButton}				{handlesCursor}
+				{boxSelectedThickness}
+				{useDefaultLabel}
+				{shapeCreationMode}
+				src={value.image.url}
+			/>
 			</div>
 		{/if}
 	</div>

@@ -34,10 +34,31 @@
 	const MAX_RECOVERY_COUNT = 3; // Allow up to 3 recoveries per clear state
 
 	let isInitialState = true; // Flag to track if we're in initial statelet isInitialState = true; // Flag to track if we're in initial state
-	let showLabels = true; // Flag to control label visibility
-
-	// Reactive statement to ensure proper updates when showLabels changes
+	let showLabels = true; // Flag to control label visibility	// Reactive statement to ensure proper updates when showLabels changes
 	$: labelVisibility = showLabels;
+
+	// Reactive statement to update mode when shapeCreationMode changes
+	$: {
+		if (shapeCreationMode && canvas) {
+			const newMode = getInitialMode(shapeCreationMode);
+			if (newMode !== mode) {
+				mode = newMode;
+				// Update cursor based on new mode
+				if (mode === Mode.drag) {
+					canvas.style.cursor = "default";
+				} else {
+					canvas.style.cursor = "crosshair";
+				}
+			}
+		}
+	}
+	
+	// Reactive statement to update mode when shapeCreationMode changes or when image loads
+	$: {
+		if (value !== null && value.boxes.length == 0 && shapeCreationMode) {
+			mode = getInitialMode(shapeCreationMode);
+		}
+	}
 
     export let imageUrl: string | null = null;
 	export let interactive: boolean;
@@ -52,10 +73,9 @@
 	export let disableEditBoxes: boolean = false;
 	export let height: number | string = "100%";
 	export let width: number | string = "100%";
-	export let singleBox: boolean = false;
-	export let showRemoveButton: boolean = null;
-	export let handlesCursor: boolean = true;
-	export let useDefaultLabel: boolean = false;
+	export let singleBox: boolean = false;	export let showRemoveButton: boolean = null;
+	export let handlesCursor: boolean = true;	export let useDefaultLabel: boolean = false;
+	export let shapeCreationMode: string = "drag";
 
 	if (showRemoveButton === null) {
 		showRemoveButton = (disableEditBoxes);
@@ -67,8 +87,34 @@
 	let mode: Mode = Mode.drag;
 	let canvasWindow: WindowViewer = new WindowViewer(draw);
 	let eraser: Eraser;
+	
+	// Function to convert string mode to enum Mode
+	function getInitialMode(modeString: string): Mode {
+		switch (modeString) {
+			case "box":
+				return Mode.creation;
+			case "freehand":
+				return Mode.freehand;
+			case "circle":
+				return Mode.circle;
+			case "polygon":
+				return Mode.polygon;
+			case "drag":
+				return Mode.drag;
+			default:
+				return Mode.drag;
+		}
+	}
+		// Set initial mode based on shape_creation_mode parameter
+	// When there are no existing shapes, use the specified creation mode
+	// When there are existing shapes, default to drag mode unless explicitly set to a creation mode
 	if (value !== null && value.boxes.length == 0) {
-		mode = Mode.creation;
+		mode = getInitialMode(shapeCreationMode);
+	} else if (value !== null && value.boxes.length > 0) {
+		// If there are existing shapes, use drag mode unless explicitly set to a creation mode
+		mode = shapeCreationMode === "drag" ? Mode.drag : getInitialMode(shapeCreationMode);
+	} else {
+		mode = getInitialMode(shapeCreationMode);
 	}
 
 	let canvasXmin = 0;
