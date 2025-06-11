@@ -1,5 +1,8 @@
 export { default as Add } from "./Add.svelte";
 export { default as BoundingBox } from "./BoundingBox.svelte";
+export { default as Bulb } from "./Bulb.svelte";
+export { default as Circle } from "./Circle.svelte";
+export { default as ClearShapes } from "./ClearShapes.svelte";
 export { default as Hand } from "./Hand.svelte";
 export { default as Trash } from "./Trash.svelte";
 export { default as Label } from "./Label.svelte";
@@ -8,3 +11,6 @@ export { default as Unlock } from "./Unlock.svelte";
 export { default as Freehand } from "./Freehand.svelte";
 export { default as Polygon } from "./Polygon.svelte";
 export { default as Erase } from "./Erase.svelte";
+export { default as UndoIcon } from "./UndoIcon.svelte";
+export { default as RedoIcon } from "./RedoIcon.svelte";
+export { default as DropdownArrow } from "./DropdownArrow.svelte";

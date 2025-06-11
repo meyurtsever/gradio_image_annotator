@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { onMount, onDestroy, createEventDispatcher } from "svelte";	import { BoundingBox, Hand, Trash, Label, Freehand, Polygon, Erase } from "./icons/index";
+	import { onMount, onDestroy, createEventDispatcher } from "svelte";	import { BoundingBox, Hand, Trash, Label, Freehand, Circle, Polygon, Erase, UndoIcon, RedoIcon, DropdownArrow, Bulb, ClearShapes } from "./icons/index";
 	import ModalBox from "./ModalBox.svelte";
+	import EraserSettingsModal from "./EraserSettingsModal.svelte";
 	import Box from "./Box";
+	import CircleShape from "./Circle";
 	import FreehandPath from "./FreehandPath";
 	import PolygonShape from "./Polygon";
-	import Eraser from "./Eraser";
-	import { Colors } from './Colors.js';
+	import Eraser from "./Eraser";	import { Colors } from './Colors.js';
 	import AnnotatedImageData from "./AnnotatedImageData";
-	import { Undo, Redo } from "@gradio/icons";
 	import WindowViewer from "./WindowViewer";
-	enum Mode {creation, drag, freehand, polygon, erase}
+	enum Mode {creation, drag, freehand, circle, polygon, erase}
 	// Undo/Redo system
 	interface UndoRedoAction {
 		type: 'create_shape' | 'delete_shape' | 'edit_shape' | 'polygon_point' | 'move_shape' | 'resize_shape';
@@ -19,11 +19,11 @@
 		pointIndex?: number;
 		pointData?: any;
 		timestamp?: number; // Optional since addUndoAction will add it
-	}
-	let undoStack: UndoRedoAction[] = [];
+	}	let undoStack: UndoRedoAction[] = [];
 	let redoStack: UndoRedoAction[] = [];
 	const MAX_UNDO_STEPS = 50;
 	let isInitialState = true; // Flag to track if we're in initial state
+	let showLabels = true; // Flag to control label visibility
 
     export let imageUrl: string | null = null;
 	export let interactive: boolean;
@@ -64,11 +64,12 @@
 	let scaleFactor = 1.0;
 
 	let imageWidth = 0;
-	let imageHeight = 0;
-	let editModalVisible = false;
+	let imageHeight = 0;	let editModalVisible = false;
 	let newModalVisible = false;
 	let editDefaultLabelVisible = false;
+	let eraserSettingsVisible = false;
 	let currentPolygon: PolygonShape | null = null; // Track current polygon being created
+	let eraserSize = 10; // Default eraser size
 
 	let labelDetailLock = useDefaultLabel;
 	let defaultLabelCache = {
@@ -127,9 +128,8 @@
 
 				ctx.restore();
 				// ctx.resetTransform();
-			}
-					for (const box of value.boxes.slice().reverse()) {
-				box.render(ctx);
+			}			for (const box of value.boxes.slice().reverse()) {
+				box.render(ctx, showLabels);
 			}
 			
 			// Render the erase path if erasing
@@ -163,6 +163,8 @@
 			createBox(event);
 		} else if (mode === Mode.freehand) {
 			createFreehandPath(event);
+		} else if (mode === Mode.circle) {
+			createCircle(event);
 		} else if (mode === Mode.polygon) {
 			handlePolygonClick(event);
 		} else if (mode === Mode.erase) {
@@ -354,10 +356,18 @@
 
 		canvasWindow.offsetX = mouseX - worldX * newScale;
 		canvasWindow.offsetY = mouseY - worldY * newScale;
-
 		canvasWindow.scale = newScale;
 		draw();
 	}
+
+	function resetZoom() {
+		// Reset scale and offset to default values
+		canvasWindow.scale = 1.0;
+		canvasWindow.offsetX = 0;
+		canvasWindow.offsetY = 0;
+		draw();
+	}
+
 	function addUndoAction(action: UndoRedoAction) {
 		// Don't add undo actions during initial state setup
 		if (isInitialState) {
@@ -452,9 +462,9 @@
 						oldShapeData: currentShapeData,
 						shapeData: action.shapeData,
 						timestamp: Date.now()
-					});
-				} else if (action.shapeIndex === -1 && action.oldShapeData) {
-					// Handle multiple shapes case (like erase operations)
+					});				} else if (action.shapeIndex === -1 && action.oldShapeData) {
+					// Handle multiple shapes case (like erase operations and clear all)
+					console.log("Performing undo for multiple shapes operation", action);
 					const currentShapeData = value.boxes.map(shape => cloneShapeData(shape));
 					value.boxes = [];
 					for (const shapeData of action.oldShapeData) {
@@ -463,6 +473,7 @@
 							value.boxes.push(restoredShape);
 						}
 					}
+					console.log("Restored shapes:", value.boxes.length);
 					redoStack.push({
 						type: 'edit_shape',
 						shapeIndex: -1,
@@ -584,7 +595,6 @@
 	/**
 	 * Auto-click at (0,0) to enable proper undo/redo functionality after labeling
 	*/
-
 	function cloneShapeData(shape: any): any {
 		if (!shape) return null;
 		
@@ -609,7 +619,16 @@
 				ymin: shape.ymin,
 				xmax: shape.xmax,
 				ymax: shape.ymax
-			};		} else if (shape instanceof Box) {
+			};		} else if (shape instanceof CircleShape) {
+			return {
+				type: 'circle',
+				label: shape.label,
+				color: shape.color,
+				centerX: shape._centerX,
+				centerY: shape._centerY,
+				radius: shape._radius
+			};
+		} else if (shape instanceof Box) {
 			return {
 				type: 'box',
 				label: shape.label,
@@ -625,8 +644,7 @@
 
 	function restoreShapeFromData(data: any, existingShape?: any): any {
 		if (!data) return null;
-				if (existingShape) {
-			// Update existing shape
+				if (existingShape) {			// Update existing shape
 			existingShape.label = data.label;
 			existingShape.color = data.color;
 			
@@ -637,6 +655,12 @@
 				existingShape._xmax = data.xmax;
 				existingShape._ymax = data.ymax;
 				// Apply scaling to get the scaled coordinates
+				existingShape.applyUserScale();
+			} else if (existingShape instanceof CircleShape) {
+				// For Circle objects, update the center and radius
+				existingShape._centerX = data.centerX;
+				existingShape._centerY = data.centerY;
+				existingShape._radius = data.radius;
 				existingShape.applyUserScale();
 			} else {
 				// For other shapes, update the regular coordinates
@@ -692,10 +716,30 @@
 						handleSize,
 						boxThickness,
 						boxSelectedThickness
-					);
-					polygon._points = [...data.points];
+					);					polygon._points = [...data.points];
 					polygon.updateBoundingBox();
 					return polygon;
+					
+				case 'circle':
+					return new CircleShape(
+						draw,
+						onBoxFinishCreation,
+						canvasWindow,
+						canvasXmin,
+						canvasYmin,
+						canvasXmax,
+						canvasYmax,
+						data.label,
+						data.centerX,
+						data.centerY,
+						data.radius,
+						data.color,
+						boxAlpha,
+						boxMinSize,
+						handleSize,
+						boxThickness,
+						boxSelectedThickness
+					);
 					
 				case 'box':
 					return new Box(
@@ -899,13 +943,69 @@
 			type: 'create_shape',
 			shapeIndex: 0
 		});
+				selectBox(0);
+		draw();
+		dispatch("change");
+	}
+
+	function createCircle(event: PointerEvent) {
+		const rect = canvas.getBoundingClientRect();
+		const x = (event.clientX - rect.left - canvasWindow.offsetX) / scaleFactor / canvasWindow.scale;
+		const y = (event.clientY - rect.top - canvasWindow.offsetY) / scaleFactor / canvasWindow.scale;
+		let color;
+		if (choicesColors.length > 0) {
+			color = colorHexToRGB(choicesColors[0]);
+		} else if (singleBox) {
+			if (value.boxes.length > 0) {
+				color = value.boxes[0].color;
+			} else {
+				color = Colors[0];
+			}
+		} else {
+			color = Colors[value.boxes.length % Colors.length];
+		}
+		
+		let circle = new CircleShape(
+			draw,
+			onBoxFinishCreation,
+			canvasWindow,
+			canvasXmin,
+			canvasYmin,
+			canvasXmax,
+			canvasYmax,
+			"",
+			x,
+			y,
+			0, // Initial radius
+			color,
+			boxAlpha,
+			boxMinSize,
+			handleSize,
+			boxThickness,
+			boxSelectedThickness
+		);
+		circle.startCreating(event, rect.left, rect.top);
+		if (singleBox) {
+			value.boxes = [circle];
+		} else {
+			value.boxes = [circle, ...value.boxes];
+		}
+		
+		// Add undo action for shape creation
+		addUndoAction({
+			type: 'create_shape',
+			shapeIndex: 0
+		});
 		
 		selectBox(0);
 		draw();
 		dispatch("change");
-	}	function startErase(event: PointerEvent) {
+	}
+
+	function startErase(event: PointerEvent) {
 		if (!eraser) {
 			eraser = new Eraser(canvasWindow, scaleFactor);
+			eraser.setBrushSize(eraserSize);
 		}
 		eraser.setScaleFactor(scaleFactor);
 		
@@ -935,11 +1035,11 @@
 		// Store original shapes for undo
 		const originalShapes = [...value.boxes];
 		const shapesToRemove: number[] = [];
-		const shapesToAdd: (Box | FreehandPath | PolygonShape)[] = [];
+		const shapesToAdd: (Box | CircleShape | FreehandPath | PolygonShape)[] = [];
 				// Apply erase to each shape
 		for (let i = 0; i < value.boxes.length; i++) {
 			const shape = value.boxes[i];
-			const resultShapes = eraser.eraseFromShape(shape as (Box | FreehandPath | PolygonShape), erasePath);
+			const resultShapes = eraser.eraseFromShape(shape as (Box | CircleShape | FreehandPath | PolygonShape), erasePath);
 			
 			if (resultShapes.length === 0) {
 				// Shape completely erased
@@ -953,17 +1053,8 @@
 				shapesToAdd.push(...resultShapes);
 			}
 		}
-		
-		// Apply changes if any shapes were affected
+				// Apply changes if any shapes were affected
 		if (shapesToRemove.length > 0 || shapesToAdd.length > 0) {
-			// Add undo action for the erase operation
-			addUndoAction({
-				type: 'edit_shape',
-				shapeIndex: -1, // Special case for multiple shapes
-				oldShapeData: originalShapes.map(shape => cloneShapeData(shape)),
-				shapeData: null // Will be filled after modification
-			});
-			
 			// Remove shapes in reverse order to maintain indices
 			for (let i = shapesToRemove.length - 1; i >= 0; i--) {
 				value.boxes.splice(shapesToRemove[i], 1);
@@ -972,22 +1063,36 @@
 			// Add new shapes
 			value.boxes.push(...shapesToAdd);
 			
-			// Update the undo action with final state
-			if (undoStack.length > 0) {
-				const lastAction = undoStack[undoStack.length - 1];
-				if (lastAction.type === 'edit_shape' && lastAction.shapeIndex === -1) {
-					lastAction.shapeData = value.boxes.map(shape => cloneShapeData(shape));
-				}
-			}
+			// Add undo action for the erase operation with complete data
+			addUndoAction({
+				type: 'edit_shape',
+				shapeIndex: -1, // Special case for multiple shapes
+				oldShapeData: originalShapes.map(shape => cloneShapeData(shape)),
+				shapeData: value.boxes.map(shape => cloneShapeData(shape))
+			});
 			
 			selectBox(-1);
 			dispatch("change");
 		}
 		
 		draw();
-		
-		// Automatically switch back to drag mode after erase operation
+				// Automatically switch back to drag mode after erase operation
 		setDragMode();
+	}
+
+	function openEraserSettings() {
+		eraserSettingsVisible = true;
+	}
+
+	function handleEraserSettingsChange(event: CustomEvent<{ size: number }>) {
+		eraserSize = event.detail.size;
+		if (eraser) {
+			eraser.setBrushSize(eraserSize);
+		}
+	}
+
+	function handleEraserSettingsClose() {
+		eraserSettingsVisible = false;
 	}
 	function setCreateMode() {
 		mode = Mode.creation;
@@ -995,9 +1100,15 @@
 		// Reset polygon state when switching modes
 		currentPolygon = null;
 	}
-
 	function setFreehandMode() {
 		mode = Mode.freehand;
+		canvas.style.cursor = "crosshair";
+		// Reset polygon state when switching modes
+		currentPolygon = null;
+	}
+
+	function setCircleMode() {
+		mode = Mode.circle;
 		canvas.style.cursor = "crosshair";
 		// Reset polygon state when switching modes
 		currentPolygon = null;
@@ -1069,13 +1180,31 @@
 			editModalVisible = true;
 		}
 	}
-
 	function handleDoubleClick(event: MouseEvent){
 		if (!interactive) {
 			return;
 		}
 		
-		onEditBox();
+		// Check if we clicked on a shape for editing
+		const rect = canvas.getBoundingClientRect();
+		const mouseX = event.clientX - rect.left;
+		const mouseY = event.clientY - rect.top;
+		let clickedOnShape = false;
+		
+		// Check if click is on any shape
+		for (const [i, box] of value.boxes.entries()) {
+			if (box.isPointInsideBox(mouseX, mouseY)) {
+				clickedOnShape = true;
+				selectBox(i);
+				onEditBox();
+				break;
+			}
+		}
+		
+		// If no shape was clicked, reset zoom
+		if (!clickedOnShape) {
+			resetZoom();
+		}
 	}
 	function addCustomLabelToChoices(label: string, color: string) {
 		// Check if the label already exists in choices
@@ -1229,8 +1358,32 @@
 			if (singleBox) {
 				setCreateMode();
 			}
-			dispatch("change");
+			dispatch("change");		}
+	}
+
+	function clearAllShapes() {
+		if (value.boxes.length === 0) return;
+		
+		// Store all shapes for undo
+		const allShapes = value.boxes.map(shape => cloneShapeData(shape));
+		
+		addUndoAction({
+			type: 'edit_shape',
+			shapeIndex: -1, // Special case for multiple shapes
+			oldShapeData: allShapes,
+			shapeData: [] // Empty array represents cleared state
+		});
+		
+		value.boxes = [];
+		selectBox(-1);
+		currentPolygon = null; // Reset polygon state
+		
+		if (singleBox) {
+			setCreateMode();
 		}
+		
+		draw();
+		dispatch("change");
 	}
 	
 	/**
@@ -1305,7 +1458,7 @@
 	const observer = new ResizeObserver(resize);	function parseInputBoxes() {
 		for (let i = 0; i < value.boxes.length; i++) {
 			let box = value.boxes[i];
-			if (!(box instanceof Box) && !(box instanceof FreehandPath) && !(box instanceof PolygonShape)) {
+			if (!(box instanceof Box) && !(box instanceof FreehandPath) && !(box instanceof PolygonShape) && !(box instanceof CircleShape)) {
 				let color = "";
 				let label = "";
 				if (box.hasOwnProperty("color")) {
@@ -1341,6 +1494,28 @@
 					freehandPath._points = box["points"];
 					freehandPath.updateBoundingBox();
 					box = freehandPath;
+				} else if (box.hasOwnProperty("type") && box["type"] === "circle" && box.hasOwnProperty("centerX") && box.hasOwnProperty("centerY") && box.hasOwnProperty("radius")) {
+					// Handle circle shapes
+					let circle = new CircleShape(
+						draw,
+						onBoxFinishCreation,
+						canvasWindow,
+						canvasXmin,
+						canvasYmin,
+						canvasXmax,
+						canvasYmax,
+						label,
+						box["centerX"],
+						box["centerY"],
+						box["radius"],
+						color,
+						boxAlpha,
+						boxMinSize,
+						handleSize,
+						boxThickness,
+						boxSelectedThickness
+					);
+					box = circle;
 				} else if (box.hasOwnProperty("type") && box["type"] === "polygon" && box.hasOwnProperty("points")) {
 					// Handle polygon shapes
 					let polygon = new PolygonShape(
@@ -1475,61 +1650,155 @@
 	></canvas>
 </div>
 
-{#if interactive}	<span class="canvas-control">		<button
-			class="icon"
-			class:selected={mode === Mode.creation}
-			aria-label="Create box"
-			on:click={() => setCreateMode()}><BoundingBox/></button
-		>
-		<button
-			class="icon"
-			class:selected={mode === Mode.freehand}
-			aria-label="Freehand drawing"
-			on:click={() => setFreehandMode()}><Freehand/></button
-		>		<button
-			class="icon"
-			class:selected={mode === Mode.polygon}
-			aria-label="Polygon drawing (click points, Space/start point to finish)"
-			on:click={() => setPolygonMode()}><Polygon/></button
-		>
-		<button
-			class="icon"
-			class:selected={mode === Mode.erase}
-			aria-label="Erase areas from shapes"
-			on:click={() => setEraseMode()}><Erase/></button
-		>
-		<button
-			class="icon"
-			class:selected={mode === Mode.drag}
-			aria-label="Edit boxes"
-			on:click={() => setDragMode()}><Hand/></button
-		>
+{#if interactive}
+	<span class="canvas-control">
+		<div class="tool-group">
+			<button
+				class="icon tool-button"
+				class:selected={mode === Mode.creation}
+				aria-label="Create box"
+				on:click={() => setCreateMode()}
+			>
+				<BoundingBox/>
+			</button>
+			<span class="tool-label">Box</span>
+		</div>
+		<div class="tool-group">
+			<button
+				class="icon tool-button"
+				class:selected={mode === Mode.freehand}
+				aria-label="Freehand drawing"
+				on:click={() => setFreehandMode()}
+			>
+				<Freehand/>
+			</button>
+			<span class="tool-label">Freehand</span>
+		</div>
+
+		<div class="tool-group">
+			<button
+				class="icon tool-button"
+				class:selected={mode === Mode.circle}
+				aria-label="Circle drawing"
+				on:click={() => setCircleMode()}
+			>
+				<Circle/>
+			</button>
+			<span class="tool-label">Circle</span>
+		</div>
+
+		<div class="tool-group">
+			<button
+				class="icon tool-button"
+				class:selected={mode === Mode.polygon}
+				aria-label="Polygon drawing (click points, Space/start point to finish)"
+				on:click={() => setPolygonMode()}
+			>
+				<Polygon/>
+			</button>
+			<span class="tool-label">Polygon</span>
+		</div>
+		<div class="tool-group eraser-group">
+			<div class="eraser-buttons">
+				<button
+					class="icon tool-button"
+					class:selected={mode === Mode.erase}
+					aria-label="Erase areas from shapes"
+					on:click={() => setEraseMode()}
+				>
+					<Erase/>
+				</button>
+				<button
+					class="icon dropdown-button"
+					aria-label="Eraser settings"
+					on:click={openEraserSettings}
+				>
+					<DropdownArrow/>
+				</button>
+			</div>
+			<span class="tool-label">Eraser</span>
+		</div>
+
+		<div class="tool-group">
+			<button
+				class="icon tool-button"
+				class:selected={mode === Mode.drag}
+				aria-label="Edit boxes"
+				on:click={() => setDragMode()}
+			>
+				<Hand/>
+			</button>
+			<span class="tool-label">Move</span>
+		</div>
+
 		{#if showRemoveButton}
-			<button
-				class="icon"
-				aria-label="Remove boxes"
-				on:click={() => onDeleteBox()}><Trash/></button
-			>
+			<div class="tool-group">
+				<button
+					class="icon tool-button"
+					aria-label="Remove boxes"
+					on:click={() => onDeleteBox()}
+				>
+					<Trash/>
+				</button>
+				<span class="tool-label">Delete</span>
+			</div>
 		{/if}
+
 		{#if !disableEditBoxes && labelDetailLock}
-			<button
-				class="icon"
-				aria-label="Edit label"
-				on:click={() => editDefaultLabelVisible = true}><Label/></button
-			>
+			<div class="tool-group">
+				<button
+					class="icon tool-button"
+					aria-label="Edit label"
+					on:click={() => editDefaultLabelVisible = true}
+				>
+					<Label/>
+				</button>
+				<span class="tool-label">Label</span>
+			</div>
 		{/if}
-		<button
-			class="icon"
-			class:disabled={undoStack.length === 0}
-			aria-label="Undo (Ctrl+Z)"
-			on:click={() => performUndo()}><Undo/></button
-		>
-		<button
-			class="icon"
-			class:disabled={redoStack.length === 0}
-			aria-label="Redo (Ctrl+Y)"
-			on:click={() => performRedo()}><Redo/></button
-		>
+
+		<div class="tool-group">
+			<button
+				class="icon tool-button"
+				class:disabled={undoStack.length === 0}
+				aria-label="Undo (Ctrl+Z)"
+				on:click={() => performUndo()}
+			>
+				<UndoIcon/>
+			</button>
+			<span class="tool-label">Undo</span>
+		</div>
+		<div class="tool-group">
+			<button
+				class="icon tool-button"
+				class:disabled={redoStack.length === 0}
+				aria-label="Redo (Ctrl+Y)"
+				on:click={() => performRedo()}
+			>
+				<RedoIcon/>
+			</button>
+			<span class="tool-label">Redo</span>		</div>
+		<div class="tool-group">
+			<button
+				class="icon tool-button"
+				class:selected={showLabels}
+				aria-label="Show/Hide labels"
+				on:click={() => { showLabels = !showLabels; draw(); }}
+			>
+				<Bulb/>
+			</button>
+			<span class="tool-label">Labels</span>
+		</div>
+		<div class="tool-group">
+			<button
+				class="icon tool-button"
+				aria-label="Clear Shapes"
+				on:click={() => clearAllShapes()}
+			>
+				<ClearShapes/>
+			</button>
+			<span class="tool-label">Clear</span>
+		</div>
 	</span>
 {/if}
 
@@ -1574,6 +1843,13 @@
 	/>
 {/if}
 
+<EraserSettingsModal
+	bind:visible={eraserSettingsVisible}
+	bind:eraserSize={eraserSize}
+	on:change={handleEraserSettingsChange}
+	on:close={handleEraserSettingsClose}
+/>
+
 <style>
 	.canvas-annotator {
 		border-color: var(--block-border-color);
@@ -1585,7 +1861,7 @@
 
 	.canvas-control {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		justify-content: center;
 		border-top: 1px solid var(--border-color-primary);
 		width: 95%;
@@ -1595,33 +1871,89 @@
 		margin-left: auto;
 		margin-right: auto;
 		margin-top: var(--size-2);
+		padding: var(--spacing-md) 0;
+		gap: var(--spacing-lg);
 	}
 
-	.icon {
+	.tool-group {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--spacing-xs);
+		min-width: 50px;
+	}
+	.eraser-group {
+		position: relative;
+	}
+
+	.eraser-buttons {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0;
+	}
+
+	.eraser-group .tool-button,
+	.eraser-group .dropdown-button {
+		margin: 0;
+	}
+
+	.eraser-group .dropdown-button {
+		width: 16px;
+		height: 16px;
+		padding: 2px;
+	}
+
+	.tool-button,
+	.dropdown-button {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: none;
+		background: none;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}	.icon.tool-button,
+	.icon.dropdown-button {
 		width: 22px;
 		height: 22px;
-		margin: var(--spacing-lg) var(--spacing-xs);
+		margin: 0;
 		padding: var(--spacing-xs);
 		color: var(--neutral-400);
 		border-radius: var(--radius-md);
 	}
-	.icon:hover,
-	.icon:focus {
+		.icon.tool-button:not(.disabled):hover,
+	.icon.tool-button:not(.disabled):focus,
+	.icon.dropdown-button:hover,
+	.icon.dropdown-button:focus {
 		color: var(--color-accent);
+		background-color: var(--background-fill-secondary);
 	}
-	
-	.icon.disabled {
+		.icon.tool-button.disabled {
 		color: var(--neutral-300);
-		cursor: not-allowed;
+		cursor: default;
+		opacity: 0.5;
 	}
 	
-	.icon.disabled:hover,
-	.icon.disabled:focus {
+	.icon.tool-button.disabled:hover,
+	.icon.tool-button.disabled:focus {
 		color: var(--neutral-300);
+		background-color: transparent;
+		cursor: default;
+		opacity: 0.5;
 	}
 	
-	.selected {
+	.tool-button.selected {
 		color: var(--color-accent);
+		background-color: var(--color-accent-soft);
+	}	.tool-label {
+		font-size: var(--text-xs);
+		color: var(--body-text-color-subdued);
+		font-weight: var(--weight-medium);
+		text-align: center;
+		line-height: 1;
+		user-select: none;
+		white-space: nowrap;
 	}
 
 	.canvas-container {

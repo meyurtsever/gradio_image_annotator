@@ -23,11 +23,10 @@ export interface Shape {
     onMoveStart?: () => void;
     onMoveEnd?: () => void;
     initialStateForUndo?: any;
-    
-    // Common methods
+      // Common methods
     setSelected(selected: boolean): void;
     setScaleFactor(scaleFactor: number): void;
-    render(ctx: CanvasRenderingContext2D): void;
+    render(ctx: CanvasRenderingContext2D, showLabels?: boolean): void;
     toJSON(): any;
     getArea(): number;
     isPointInsideBox(x: number, y: number): boolean;

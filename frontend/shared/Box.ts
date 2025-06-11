@@ -243,8 +243,7 @@ export default class Box {
         this.canvasXmax = this.canvasWindow.offsetX + this.canvasWindow.imageWidth * this.canvasWindow.scale;
         this.canvasYmax = this.canvasWindow.offsetY + this.canvasWindow.imageHeight * this.canvasWindow.scale;
         this.applyUserScale();
-    }
-    render(ctx: CanvasRenderingContext2D): void {
+    }    render(ctx: CanvasRenderingContext2D, showLabels: boolean = true): void {
         let xmin: number, ymin: number;
 
         this.updateOffset()
@@ -264,8 +263,8 @@ export default class Box {
         ctx.stroke();
         ctx.closePath();
 
-        // Render the label and background
-        if (this.label !== null && this.label.trim() !== ""){
+        // Render the label and background only if showLabels is true
+        if (showLabels && this.label !== null && this.label.trim() !== ""){
             if (this.isSelected) {
                 ctx.font = "bold 14px Arial";
             } else {

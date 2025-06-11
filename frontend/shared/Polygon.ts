@@ -346,9 +346,7 @@ export default class Polygon {
         const [startX, startY] = this.toCanvasCoordinates(startPoint.x * this.canvasWindow.scale, startPoint.y * this.canvasWindow.scale);
         const distance = Math.sqrt(Math.pow(x - startX, 2) + Math.pow(y - startY, 2));
         return distance <= this.startPointRadius;
-    }
-
-    render(ctx: CanvasRenderingContext2D): void {
+    }    render(ctx: CanvasRenderingContext2D, showLabels: boolean = true): void {
         if (this.points.length === 0) return;
 
         this.updateOffset();
@@ -400,8 +398,8 @@ export default class Polygon {
             }
         }
 
-        // Render the label and background
-        if (this.label !== null && this.label.trim() !== "") {
+        // Render the label and background (only if showLabels is true)
+        if (showLabels && this.label !== null && this.label.trim() !== "") {
             if (this.isSelected) {
                 ctx.font = "bold 14px Arial";
             } else {
@@ -434,7 +432,7 @@ export default class Polygon {
                 );
             }
         }
-    }    startDrag(event: MouseEvent): void {
+    }startDrag(event: MouseEvent): void {
         this.isDragging = true;
         this.offsetMouseX = event.clientX - this._xmin * this.canvasWindow.scale;
         this.offsetMouseY = event.clientY - this._ymin * this.canvasWindow.scale;

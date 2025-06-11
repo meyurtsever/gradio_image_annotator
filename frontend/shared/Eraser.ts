@@ -1,5 +1,6 @@
 import WindowViewer from "./WindowViewer";
 import Box from "./Box";
+import CircleShape from "./Circle";
 import FreehandPath from "./FreehandPath";
 import PolygonShape from "./Polygon";
 
@@ -69,11 +70,10 @@ export default class Eraser {
         const imageY = (mouseY - this.canvasWindow.offsetY) / this.scaleFactor / this.canvasWindow.scale;
         
         this.erasePath.push({ x: imageX, y: imageY });
-    }
-      /**
+    }    /**
      * Apply erase path to a shape using pixel-based masking approach
      */
-    eraseFromShape(shape: Box | FreehandPath | PolygonShape, erasePath: ErasePoint[]): (Box | FreehandPath | PolygonShape)[] {
+    eraseFromShape(shape: Box | CircleShape | FreehandPath | PolygonShape, erasePath: ErasePoint[]): (Box | CircleShape | FreehandPath | PolygonShape)[] {
         if (erasePath.length === 0) return [shape];
         
         // Create mask for the erase path
@@ -81,6 +81,8 @@ export default class Eraser {
         
         if (shape instanceof Box) {
             return this.eraseFromBox(shape, eraseMask);
+        } else if (shape instanceof CircleShape) {
+            return this.eraseFromCircle(shape, eraseMask);
         } else if (shape instanceof FreehandPath) {
             return this.eraseFromFreehand(shape, eraseMask);
         } else if (shape instanceof PolygonShape) {
@@ -210,8 +212,102 @@ export default class Eraser {
             const newFreehand = this.polygonToFreehand(erasedPolygon, freehand);
             result.push(newFreehand);
         }
+          return result;
+    }
+    
+    /**
+     * Erase from circle using pixel-based masking - converts to polygon first
+     */
+    private eraseFromCircle(circle: CircleShape, eraseMask: EraseMask): (CircleShape | PolygonShape)[] {
+        // For circles, we can either:
+        // 1. Check if the erase path intersects the circle significantly and remove it entirely
+        // 2. Convert to polygon approximation for more complex erasing
         
-        return result;
+        // Simple approach: check if erase mask significantly overlaps with circle
+        const overlapRatio = this.calculateCircleEraseMaskOverlap(circle, eraseMask);
+        
+        // If more than 30% of the circle is erased, remove it entirely
+        if (overlapRatio > 0.3) {
+            return [];
+        }
+        
+        // If less overlap, convert to polygon for more precise erasing
+        if (overlapRatio > 0.05) {
+            const polygon = this.circleToPolygon(circle);
+            return this.eraseFromPolygon(polygon, eraseMask);
+        }
+        
+        // No significant overlap, return original circle
+        return [circle];
+    }
+    
+    /**
+     * Calculate the overlap ratio between circle and erase mask
+     */
+    private calculateCircleEraseMaskOverlap(circle: CircleShape, eraseMask: EraseMask): number {
+        const centerX = circle._centerX;
+        const centerY = circle._centerY;
+        const radius = circle._radius;
+        
+        // Check if circle intersects with erase mask bounds
+        if (centerX + radius < eraseMask.x || centerX - radius > eraseMask.x + eraseMask.width ||
+            centerY + radius < eraseMask.y || centerY - radius > eraseMask.y + eraseMask.height) {
+            return 0; // No intersection
+        }
+        
+        // Sample points within circle and check against mask
+        const sampleCount = 100; // Number of sample points
+        let erasedSamples = 0;
+        
+        for (let i = 0; i < sampleCount; i++) {
+            // Generate random point within circle
+            const angle = Math.random() * 2 * Math.PI;
+            const r = Math.sqrt(Math.random()) * radius;
+            const x = centerX + r * Math.cos(angle);
+            const y = centerY + r * Math.sin(angle);
+            
+            if (this.isPointErased({ x, y }, eraseMask)) {
+                erasedSamples++;
+            }
+        }
+        
+        return erasedSamples / sampleCount;
+    }
+    
+    /**
+     * Convert circle to polygon for uniform mask-based processing
+     */
+    private circleToPolygon(circle: CircleShape): PolygonShape {
+        const polygon = new PolygonShape(
+            circle.renderCallBack,
+            circle.onFinishCreation,
+            circle.canvasWindow,
+            circle.canvasXmin,
+            circle.canvasYmin,
+            circle.canvasXmax,
+            circle.canvasYmax,
+            circle.label,
+            circle.color,
+            circle.alpha,
+            circle.minSize,
+            circle.resizeHandleSize,
+            circle.thickness,
+            circle.selectedThickness
+        );
+          // Approximate circle with polygon (16 sides for reasonable accuracy)
+        const sides = 16;
+        const points: Array<{x: number, y: number}> = [];
+        for (let i = 0; i < sides; i++) {
+            const angle = (i / sides) * 2 * Math.PI;
+            const x = circle._centerX + circle._radius * Math.cos(angle);
+            const y = circle._centerY + circle._radius * Math.sin(angle);
+            points.push({ x, y });
+        }
+        
+        polygon._points = points;
+        polygon.updateBoundingBox();
+        
+        return polygon;
     }
     
     /**

@@ -264,7 +264,7 @@ export default class FreehandPath {
         this.canvasXmax = this.canvasWindow.offsetX + this.canvasWindow.imageWidth * this.canvasWindow.scale;
         this.canvasYmax = this.canvasWindow.offsetY + this.canvasWindow.imageHeight * this.canvasWindow.scale;
         this.applyUserScale();
-    }    render(ctx: CanvasRenderingContext2D): void {
+    }    render(ctx: CanvasRenderingContext2D, showLabels: boolean = true): void {
         if (this.points.length === 0) return;
 
         this.updateOffset();
@@ -299,12 +299,11 @@ export default class FreehandPath {
             ctx.stroke();
         }
         
-        this.renderLabel(ctx);
+        this.renderLabel(ctx, showLabels);
         this.renderHandles(ctx);
-    }
-    private renderLabel(ctx: CanvasRenderingContext2D): void {
-        // Render the label and background
-        if (this.label !== null && this.label.trim() !== "") {
+    }    private renderLabel(ctx: CanvasRenderingContext2D, showLabels: boolean = true): void {
+        // Render the label and background only if showLabels is true
+        if (showLabels && this.label !== null && this.label.trim() !== "") {
             if (this.isSelected) {
                 ctx.font = "bold 14px Arial";
             } else {
