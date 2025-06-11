@@ -44,9 +44,9 @@ example_annotation = {
 def handle_select(evt: gr.SelectData):
     """Handle select events from the image annotator"""
     coordinates = evt.value
-    print('triggered the select event')
-    print(f'Event data: {evt}')
-    print(f'Coordinates: {coordinates}')
+    #print('triggered the select event')
+    #print(f'Event data: {evt}')
+    #print(f'Coordinates: {coordinates}')
     return f"Clicked at coordinates: ({coordinates[0]}, {coordinates[1]})"
 
 def handle_change(evt):

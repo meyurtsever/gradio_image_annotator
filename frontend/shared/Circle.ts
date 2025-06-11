@@ -11,6 +11,11 @@ export default class Circle {
     _centerX: number;
     _centerY: number;
     _radius: number;
+    // Bounding box properties for consistent label positioning
+    xmin: number;
+    ymin: number;
+    xmax: number;
+    ymax: number;
     color: string;
     alpha: number;
     isDragging: boolean;
@@ -72,8 +77,7 @@ export default class Circle {
         this.canvasXmin = canvasXmin;
         this.canvasYmin = canvasYmin;
         this.canvasXmax = canvasXmax;
-        this.canvasYmax = canvasYmax;
-        this.scaleFactor = scaleFactor;
+        this.canvasYmax = canvasYmax;        this.scaleFactor = scaleFactor;
         this.label = label;
         this.isDragging = false;
         this.isCreating = false;
@@ -90,11 +94,14 @@ export default class Circle {
         this.resizeHandleSize = handleSize;
         this.thickness = thickness;
         this.selectedThickness = selectedThickness;
-        this.updateHandles();
         this.resizingHandleIndex = -1;
         this.minSize = minSize;
         this.color = color;
         this.alpha = alpha;
+        
+        // Initialize bounding box properties
+        this.applyUserScale();
+        this.updateHandles();
     }
 
     toJSON() {
@@ -120,75 +127,108 @@ export default class Circle {
         this._radius = Math.round(this._radius * scale);
         this.applyUserScale();
         this.scaleFactor = scaleFactor;
+    }    updateHandles(): void {
+        // The handles will be calculated dynamically during rendering and hit-testing
+        // This method now just ensures the handle array exists
+        if (!this.resizeHandles) {
+            this.resizeHandles = [];
+        }
     }
 
-    updateHandles(): void {
+    getHandlePositions(): {xmin: number, ymin: number, xmax: number, ymax: number, cursor: string}[] {
         const halfSize = this.resizeHandleSize / 2;
-        this.resizeHandles = [
+        // Convert to canvas coordinates for handles
+        const canvasX = this._centerX * this.canvasWindow.scale + this.canvasWindow.offsetX;
+        const canvasY = this._centerY * this.canvasWindow.scale + this.canvasWindow.offsetY;
+        const canvasRadius = this._radius * this.canvasWindow.scale;
+        
+        return [
             {
                 // Top handle
-                xmin: this.centerX - halfSize,
-                ymin: this.centerY - this.radius - halfSize,
-                xmax: this.centerX + halfSize,
-                ymax: this.centerY - this.radius + halfSize,
+                xmin: canvasX - halfSize,
+                ymin: canvasY - canvasRadius - halfSize,
+                xmax: canvasX + halfSize,
+                ymax: canvasY - canvasRadius + halfSize,
                 cursor: "ns-resize",
             },
             {
                 // Right handle
-                xmin: this.centerX + this.radius - halfSize,
-                ymin: this.centerY - halfSize,
-                xmax: this.centerX + this.radius + halfSize,
-                ymax: this.centerY + halfSize,
+                xmin: canvasX + canvasRadius - halfSize,
+                ymin: canvasY - halfSize,
+                xmax: canvasX + canvasRadius + halfSize,
+                ymax: canvasY + halfSize,
                 cursor: "ew-resize",
             },
             {
                 // Bottom handle
-                xmin: this.centerX - halfSize,
-                ymin: this.centerY + this.radius - halfSize,
-                xmax: this.centerX + halfSize,
-                ymax: this.centerY + this.radius + halfSize,
+                xmin: canvasX - halfSize,
+                ymin: canvasY + canvasRadius - halfSize,
+                xmax: canvasX + halfSize,
+                ymax: canvasY + canvasRadius + halfSize,
                 cursor: "ns-resize",
             },
             {
                 // Left handle
-                xmin: this.centerX - this.radius - halfSize,
-                ymin: this.centerY - halfSize,
-                xmax: this.centerX - this.radius + halfSize,
-                ymax: this.centerY + halfSize,
+                xmin: canvasX - canvasRadius - halfSize,
+                ymin: canvasY - halfSize,
+                xmax: canvasX - canvasRadius + halfSize,
+                ymax: canvasY + halfSize,
                 cursor: "ew-resize",
             },
         ];
-    }
-
-    applyUserScale(): void {
+    }    applyUserScale(): void {
+        // Update the legacy properties for backward compatibility
         this.centerX = this._centerX * this.canvasWindow.scale;
         this.centerY = this._centerY * this.canvasWindow.scale;
         this.radius = this._radius * this.canvasWindow.scale;
-        this.updateHandles();
+        
+        // Update bounding box properties for consistent label positioning
+        this.xmin = (this._centerX - this._radius) * this.canvasWindow.scale;
+        this.ymin = (this._centerY - this._radius) * this.canvasWindow.scale;
+        this.xmax = (this._centerX + this._radius) * this.canvasWindow.scale;
+        this.ymax = (this._centerY + this._radius) * this.canvasWindow.scale;
+        // Handles are calculated dynamically, no need to update them here
     }
 
     getArea(): number {
         return Math.PI * this._radius * this._radius;
     }
 
+    toCanvasCoordinates(x: number, y: number): [number, number] {
+        // Convert from bounding box coordinates to canvas coordinates (same pattern as other shapes)
+        return [
+            x + this.canvasXmin,
+            y + this.canvasYmin
+        ];
+    }
+
     toBoxCoordinates(x: number, y: number): [number, number] {
+        // Convert from canvas coordinates to image coordinates
         return [
             (x - this.canvasWindow.offsetX) / this.canvasWindow.scale,
             (y - this.canvasWindow.offsetY) / this.canvasWindow.scale,
         ];
     }
 
-    render(ctx: CanvasRenderingContext2D, showLabels: boolean = true): void {
+    updateOffset(): void {
+        this.canvasXmin = this.canvasWindow.offsetX;
+        this.canvasYmin = this.canvasWindow.offsetY;
+        this.canvasXmax = this.canvasWindow.offsetX + this.canvasWindow.imageWidth * this.canvasWindow.scale;
+        this.canvasYmax = this.canvasWindow.offsetY + this.canvasWindow.imageHeight * this.canvasWindow.scale;
+        this.applyUserScale();
+    }    render(ctx: CanvasRenderingContext2D, showLabels: boolean = true): void {
         if (this.radius <= 0) return;
 
-        ctx.save();
-        ctx.translate(this.canvasWindow.offsetX, this.canvasWindow.offsetY);
-        ctx.scale(this.canvasWindow.scale, this.canvasWindow.scale);
+        this.updateOffset();
+
+        // Convert circle center from image coordinates to canvas coordinates
+        const canvasX = this._centerX * this.canvasWindow.scale + this.canvasWindow.offsetX;
+        const canvasY = this._centerY * this.canvasWindow.scale + this.canvasWindow.offsetY;
+        const canvasRadius = this._radius * this.canvasWindow.scale;
 
         // Draw the circle
         ctx.beginPath();
-        ctx.arc(this.centerX / this.canvasWindow.scale, this.centerY / this.canvasWindow.scale, 
-                this.radius / this.canvasWindow.scale, 0, 2 * Math.PI);
+        ctx.arc(canvasX, canvasY, canvasRadius, 0, 2 * Math.PI);
         
         // Fill with transparent color
         ctx.fillStyle = setAlpha(this.color, this.alpha);
@@ -196,43 +236,56 @@ export default class Circle {
 
         // Stroke
         ctx.strokeStyle = this.color;
-        ctx.lineWidth = (this.isSelected ? this.selectedThickness : this.thickness) / this.canvasWindow.scale;
+        ctx.lineWidth = this.isSelected ? this.selectedThickness : this.thickness;
         ctx.stroke();
 
         // Draw resize handles if selected
         if (this.isSelected) {
             ctx.fillStyle = this.color;
-            for (const handle of this.resizeHandles) {
+            const handles = this.getHandlePositions();
+            for (const handle of handles) {
                 ctx.fillRect(
-                    handle.xmin / this.canvasWindow.scale,
-                    handle.ymin / this.canvasWindow.scale,
-                    (handle.xmax - handle.xmin) / this.canvasWindow.scale,
-                    (handle.ymax - handle.ymin) / this.canvasWindow.scale
+                    handle.xmin,
+                    handle.ymin,
+                    handle.xmax - handle.xmin,
+                    handle.ymax - handle.ymin
                 );
             }
+        }        // Draw label if available and showLabels is true
+        if (showLabels && this.label !== null && this.label.trim() !== "") {
+            if (this.isSelected) {
+                ctx.font = "bold 14px Arial";
+            } else {
+                ctx.font = "12px Arial";
+            }
+            const labelWidth = ctx.measureText(this.label).width + 10;
+            const labelHeight = 20;
+            let labelX = this.xmin;
+            let labelY = this.ymin - labelHeight;
+            ctx.fillStyle = "white";
+            [labelX, labelY] = this.toCanvasCoordinates(labelX, labelY);
+            ctx.fillRect(labelX, labelY, labelWidth, labelHeight);
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = "black";
+            ctx.strokeRect(labelX, labelY, labelWidth, labelHeight);
+            ctx.fillStyle = "black";
+            ctx.fillText(this.label, labelX + 5, labelY + 15);
         }
-
-        // Draw label if available and showLabels is true
-        if (showLabels && this.label) {
-            ctx.fillStyle = this.color;
-            ctx.font = `${12 / this.canvasWindow.scale}px Arial`;
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText(
-                this.label,
-                this.centerX / this.canvasWindow.scale,
-                this.centerY / this.canvasWindow.scale
-            );
-        }
-
-        ctx.restore();
-    }
-
-    startDrag(event: MouseEvent): void {
+    }    startDrag(event: MouseEvent): void {
         this.isDragging = true;
-        const [x, y] = this.toBoxCoordinates(event.clientX, event.clientY);
-        this.offsetMouseX = x - this._centerX;
-        this.offsetMouseY = y - this._centerY;
+        
+        // Get canvas-relative coordinates first
+        const canvas = document.querySelector('canvas');
+        if (canvas) {
+            const rect = canvas.getBoundingClientRect();
+            const canvasX = event.clientX - rect.left;
+            const canvasY = event.clientY - rect.top;
+            
+            // Convert canvas coordinates to image coordinates
+            const [imageX, imageY] = this.toBoxCoordinates(canvasX, canvasY);
+            this.offsetMouseX = imageX - this._centerX;
+            this.offsetMouseY = imageY - this._centerY;
+        }
         
         // Call move start callback for undo/redo
         if (this.onMoveStart) {
@@ -252,41 +305,48 @@ export default class Circle {
         if (this.onMoveEnd) {
             this.onMoveEnd();
         }
-    };
-
-    handleDrag = (event: MouseEvent): void => {
+    };    handleDrag = (event: MouseEvent): void => {
         if (this.isDragging) {
-            const [x, y] = this.toBoxCoordinates(event.clientX, event.clientY);
-            let newCenterX = x - this.offsetMouseX;
-            let newCenterY = y - this.offsetMouseY;
+            // Get canvas-relative coordinates first
+            const canvas = document.querySelector('canvas');
+            if (canvas) {
+                const rect = canvas.getBoundingClientRect();
+                const canvasX = event.clientX - rect.left;
+                const canvasY = event.clientY - rect.top;
+                
+                // Convert canvas coordinates to image coordinates
+                const [imageX, imageY] = this.toBoxCoordinates(canvasX, canvasY);
+                let newCenterX = imageX - this.offsetMouseX;
+                let newCenterY = imageY - this.offsetMouseY;
 
-            const canvasW = (this.canvasXmax - this.canvasXmin) / this.canvasWindow.scale;
-            const canvasH = (this.canvasYmax - this.canvasYmin) / this.canvasWindow.scale;
-            
-            // Clamp to keep circle within canvas bounds
-            newCenterX = clamp(newCenterX, this._radius, canvasW - this._radius);
-            newCenterY = clamp(newCenterY, this._radius, canvasH - this._radius);
+                // Get image bounds for clamping
+                const canvasW = (this.canvasXmax - this.canvasXmin) / this.canvasWindow.scale;
+                const canvasH = (this.canvasYmax - this.canvasYmin) / this.canvasWindow.scale;
+                
+                // Clamp to keep circle within canvas bounds
+                newCenterX = clamp(newCenterX, this._radius, canvasW - this._radius);
+                newCenterY = clamp(newCenterY, this._radius, canvasH - this._radius);
 
-            this._centerX = newCenterX;
-            this._centerY = newCenterY;
+                this._centerX = newCenterX;
+                this._centerY = newCenterY;
 
-            this.applyUserScale();
-            this.renderCallBack();
+                this.applyUserScale();
+                this.renderCallBack();
+            }
         }
-    };
-
-    isPointInsideBox(x: number, y: number): boolean {
-        [x, y] = this.toBoxCoordinates(x, y);
+    };isPointInsideBox(x: number, y: number): boolean {
+        // Convert canvas coordinates to image coordinates
+        const [imageX, imageY] = this.toBoxCoordinates(x, y);
+        // Calculate distance from image center
         const distance = Math.sqrt(
-            Math.pow(x - this.centerX, 2) + Math.pow(y - this.centerY, 2)
+            Math.pow(imageX - this._centerX, 2) + Math.pow(imageY - this._centerY, 2)
         );
-        return distance <= this.radius;
-    }
-
-    indexOfPointInsideHandle(x: number, y: number): number {
-        [x, y] = this.toBoxCoordinates(x, y);
-        for (let i = 0; i < this.resizeHandles.length; i++) {
-            const handle = this.resizeHandles[i];
+        return distance <= this._radius;
+    }    indexOfPointInsideHandle(x: number, y: number): number {
+        // x, y are already canvas coordinates, so we can use them directly
+        const handles = this.getHandlePositions();
+        for (let i = 0; i < handles.length; i++) {
+            const handle = handles[i];
             if (
                 x >= handle.xmin &&
                 x <= handle.xmax &&
@@ -298,28 +358,42 @@ export default class Circle {
             }
         }
         return -1;
-    }
-
-    startCreating(event: MouseEvent, canvasX: number, canvasY: number): void {
+    }startCreating(event: MouseEvent): void {
         this.isCreating = true;
-        this.offsetMouseX = canvasX;
-        this.offsetMouseY = canvasY;
+        // Store the initial mouse position in image coordinates for calculating radius
+        const canvas = document.querySelector('canvas');
+        if (canvas) {
+            const rect = canvas.getBoundingClientRect();
+            // Set the circle center to the initial click position (in image coordinates)
+            this._centerX = (event.clientX - rect.left - this.canvasWindow.offsetX) / this.canvasWindow.scale;
+            this._centerY = (event.clientY - rect.top - this.canvasWindow.offsetY) / this.canvasWindow.scale;
+            
+            // Store for radius calculation
+            this.offsetMouseX = this._centerX;
+            this.offsetMouseY = this._centerY;
+        }
         document.addEventListener("pointermove", this.handleCreating);
         document.addEventListener("pointerup", this.stopCreating);
-    }
-
-    handleCreating = (event: MouseEvent): void => {
+    }handleCreating = (event: MouseEvent): void => {
         if (this.isCreating) {
-            let [x, y] = this.toBoxCoordinates(event.clientX, event.clientY);
-            x = (x - this.offsetMouseX) / this.canvasWindow.scale;
-            y = (y - this.offsetMouseY) / this.canvasWindow.scale;
-
-            // Calculate radius from center to current mouse position
-            const newRadius = Math.sqrt(x * x + y * y);
-            this._radius = Math.max(newRadius, this.minSize / 2);
-
-            this.applyUserScale();
-            this.renderCallBack();
+            const canvas = document.querySelector('canvas');
+            if (canvas) {
+                const rect = canvas.getBoundingClientRect();
+                // Calculate current mouse position in image coordinates (same as freehand)
+                const currentX = (event.clientX - rect.left - this.canvasWindow.offsetX) / this.canvasWindow.scale;
+                const currentY = (event.clientY - rect.top - this.canvasWindow.offsetY) / this.canvasWindow.scale;
+                
+                // Calculate radius as distance from initial position to current position
+                const deltaX = currentX - this.offsetMouseX;
+                const deltaY = currentY - this.offsetMouseY;
+                const newRadius = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+                
+                // Set minimum radius for usability (much smaller than before)
+                this._radius = Math.max(newRadius, 5); // Minimum 5 pixel radius
+                
+                this.applyUserScale();
+                this.renderCallBack();
+            }
         }
     };
 
@@ -341,21 +415,28 @@ export default class Circle {
         
         document.addEventListener("pointermove", this.handleResize);
         document.addEventListener("pointerup", this.stopResize);
-    }
-
-    handleResize = (event: MouseEvent): void => {
+    }    handleResize = (event: MouseEvent): void => {
         if (this.isResizing) {
-            const [x, y] = this.toBoxCoordinates(event.clientX, event.clientY);
-            
-            // Calculate new radius based on distance from center to mouse
-            const newRadius = Math.sqrt(
-                Math.pow(x - this.centerX, 2) + Math.pow(y - this.centerY, 2)
-            );
-            
-            this._radius = Math.max(newRadius / this.canvasWindow.scale, this.minSize / 2);
+            // Get canvas-relative coordinates first
+            const canvas = document.querySelector('canvas');
+            if (canvas) {
+                const rect = canvas.getBoundingClientRect();
+                const canvasX = event.clientX - rect.left;
+                const canvasY = event.clientY - rect.top;
+                
+                // Convert canvas coordinates to image coordinates
+                const [imageX, imageY] = this.toBoxCoordinates(canvasX, canvasY);
+                
+                // Calculate new radius based on distance from center to mouse in image coordinates
+                const newRadius = Math.sqrt(
+                    Math.pow(imageX - this._centerX, 2) + Math.pow(imageY - this._centerY, 2)
+                );
+                
+                this._radius = Math.max(newRadius, this.minSize / 2);
 
-            this.applyUserScale();
-            this.renderCallBack();
+                this.applyUserScale();
+                this.renderCallBack();
+            }
         }
     };
 

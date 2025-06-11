@@ -9,8 +9,7 @@
 	import Eraser from "./Eraser";	import { Colors } from './Colors.js';
 	import AnnotatedImageData from "./AnnotatedImageData";
 	import WindowViewer from "./WindowViewer";
-	enum Mode {creation, drag, freehand, circle, polygon, erase}
-	// Undo/Redo system
+	enum Mode {creation, drag, freehand, circle, polygon, erase}	// Undo/Redo system
 	interface UndoRedoAction {
 		type: 'create_shape' | 'delete_shape' | 'edit_shape' | 'polygon_point' | 'move_shape' | 'resize_shape';
 		shapeIndex?: number;
@@ -19,11 +18,26 @@
 		pointIndex?: number;
 		pointData?: any;
 		timestamp?: number; // Optional since addUndoAction will add it
+	}
+
+	// Pre-clear history system for enhanced Clear Shapes recovery
+	interface PreClearState {
+		allShapes: any[]; // All shapes data at the time of clear
+		recoveryCount: number; // Number of times this state has been recovered
+		clearTimestamp: number; // When this clear operation happened
 	}	let undoStack: UndoRedoAction[] = [];
 	let redoStack: UndoRedoAction[] = [];
+	let preClearHistory: PreClearState[] = []; // Dedicated history for clear operations
+	
 	const MAX_UNDO_STEPS = 50;
-	let isInitialState = true; // Flag to track if we're in initial state
+	const MAX_PRECLEAR_STATES = 3; // Store only last 3 cleared states
+	const MAX_RECOVERY_COUNT = 3; // Allow up to 3 recoveries per clear state
+
+	let isInitialState = true; // Flag to track if we're in initial statelet isInitialState = true; // Flag to track if we're in initial state
 	let showLabels = true; // Flag to control label visibility
+
+	// Reactive statement to ensure proper updates when showLabels changes
+	$: labelVisibility = showLabels;
 
     export let imageUrl: string | null = null;
 	export let interactive: boolean;
@@ -359,12 +373,35 @@
 		canvasWindow.scale = newScale;
 		draw();
 	}
-
 	function resetZoom() {
-		// Reset scale and offset to default values
+		// Reset scale to 1.0
 		canvasWindow.scale = 1.0;
-		canvasWindow.offsetX = 0;
-		canvasWindow.offsetY = 0;
+		
+		// Center the image horizontally and vertically within the frame
+		if (image !== null && canvas) {
+			// Calculate centered position similar to resize function
+			if (canvasWindow.imageRotatedWidth <= canvas.width) {
+				// Center horizontally when image fits within canvas width
+				const centerX = (canvas.width - imageWidth) / 2;
+				canvasWindow.offsetX = centerX;
+			} else {
+				// For larger images, reset to left edge
+				canvasWindow.offsetX = 0;
+			}
+			
+			// Center vertically if there's extra space
+			if (imageHeight < canvas.height) {
+				const centerY = (canvas.height - imageHeight) / 2;
+				canvasWindow.offsetY = centerY;
+			} else {
+				canvasWindow.offsetY = 0;
+			}
+		} else {
+			// No image loaded, reset to origin
+			canvasWindow.offsetX = 0;
+			canvasWindow.offsetY = 0;
+		}
+		
 		draw();
 	}
 
@@ -391,10 +428,48 @@
 		
 		console.log("Added undo action:", action, "Stack size:", undoStack.length);
 	}
-
 	function performUndo() {
 		if (undoStack.length === 0) {
-			console.log("Cannot undo: stack is empty");
+			// Check pre-clear history when standard undo stack is empty
+			if (preClearHistory.length === 0) {
+				console.log("Cannot undo: both undo stack and pre-clear history are empty");
+				return;
+			}
+			
+			// Find the most recent pre-clear state that hasn't exceeded recovery limit
+			for (let i = preClearHistory.length - 1; i >= 0; i--) {
+				const preClearState = preClearHistory[i];
+				if (preClearState.recoveryCount < MAX_RECOVERY_COUNT) {
+					// Restore shapes from pre-clear history
+					const currentShapes = value.boxes.map(shape => cloneShapeData(shape));
+					value.boxes = [];
+					
+					for (const shapeData of preClearState.allShapes) {
+						const restoredShape = restoreShapeFromData(shapeData);
+						if (restoredShape) {
+							value.boxes.push(restoredShape);
+						}
+					}
+					
+					// Increment recovery count
+					preClearState.recoveryCount++;
+					
+					// If this state has reached max recoveries, remove it
+					if (preClearState.recoveryCount >= MAX_RECOVERY_COUNT) {
+						preClearHistory.splice(i, 1);
+						console.log(`Pre-clear state exhausted and removed. Remaining states: ${preClearHistory.length}`);
+					}
+					
+					console.log(`Restored ${value.boxes.length} shapes from pre-clear history. Recovery ${preClearState.recoveryCount}/${MAX_RECOVERY_COUNT}`);
+					
+					selectBox(-1);
+					draw();
+					dispatch("change");
+					return;
+				}
+			}
+			
+			console.log("Cannot undo: no recoverable pre-clear states available");
 			return;
 		}
 		
@@ -463,7 +538,7 @@
 						shapeData: action.shapeData,
 						timestamp: Date.now()
 					});				} else if (action.shapeIndex === -1 && action.oldShapeData) {
-					// Handle multiple shapes case (like erase operations and clear all)
+					// Handle multiple shapes case (like erase operations)
 					console.log("Performing undo for multiple shapes operation", action);
 					const currentShapeData = value.boxes.map(shape => cloneShapeData(shape));
 					value.boxes = [];
@@ -947,11 +1022,10 @@
 		draw();
 		dispatch("change");
 	}
-
 	function createCircle(event: PointerEvent) {
 		const rect = canvas.getBoundingClientRect();
-		const x = (event.clientX - rect.left - canvasWindow.offsetX) / scaleFactor / canvasWindow.scale;
-		const y = (event.clientY - rect.top - canvasWindow.offsetY) / scaleFactor / canvasWindow.scale;
+		const x = (event.clientX - rect.left - canvasWindow.offsetX) / canvasWindow.scale;
+		const y = (event.clientY - rect.top - canvasWindow.offsetY) / canvasWindow.scale;
 		let color;
 		if (choicesColors.length > 0) {
 			color = colorHexToRGB(choicesColors[0]);
@@ -982,9 +1056,8 @@
 			boxMinSize,
 			handleSize,
 			boxThickness,
-			boxSelectedThickness
-		);
-		circle.startCreating(event, rect.left, rect.top);
+			boxSelectedThickness		);
+		circle.startCreating(event);
 		if (singleBox) {
 			value.boxes = [circle];
 		} else {
@@ -1360,20 +1433,25 @@
 			}
 			dispatch("change");		}
 	}
-
 	function clearAllShapes() {
 		if (value.boxes.length === 0) return;
 		
-		// Store all shapes for undo
+		// Store all shapes in pre-clear history for enhanced recovery
 		const allShapes = value.boxes.map(shape => cloneShapeData(shape));
 		
-		addUndoAction({
-			type: 'edit_shape',
-			shapeIndex: -1, // Special case for multiple shapes
-			oldShapeData: allShapes,
-			shapeData: [] // Empty array represents cleared state
+		// Add to pre-clear history with FIFO eviction
+		preClearHistory.push({
+			allShapes: allShapes,
+			recoveryCount: 0,
+			clearTimestamp: Date.now()
 		});
 		
+		// FIFO eviction: remove oldest states if we exceed the limit
+		while (preClearHistory.length > MAX_PRECLEAR_STATES) {
+			preClearHistory.shift();
+		}
+		
+		// Clear all shapes
 		value.boxes = [];
 		selectBox(-1);
 		currentPolygon = null; // Reset polygon state
@@ -1384,6 +1462,8 @@
 		
 		draw();
 		dispatch("change");
+		
+		console.log(`Cleared ${allShapes.length} shapes. Pre-clear history size: ${preClearHistory.length}`);
 	}
 	
 	/**
@@ -1777,15 +1857,17 @@
 			>
 				<RedoIcon/>
 			</button>
-			<span class="tool-label">Redo</span>		</div>
-		<div class="tool-group">
+			<span class="tool-label">Redo</span>		</div>		<div class="tool-group">
 			<button
 				class="icon tool-button"
-				class:selected={showLabels}
+				class:selected={labelVisibility}
 				aria-label="Show/Hide labels"
-				on:click={() => { showLabels = !showLabels; draw(); }}
+				on:click={() => { 
+					showLabels = !showLabels; 
+					draw(); 
+				}}
 			>
-				<Bulb/>
+				<Bulb selected={labelVisibility} />
 			</button>
 			<span class="tool-label">Labels</span>
 		</div>
