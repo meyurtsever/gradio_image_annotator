@@ -37,27 +37,19 @@
 	let showLabels = true; // Flag to control label visibility	// Reactive statement to ensure proper updates when showLabels changes
 	$: labelVisibility = showLabels;
 
-	// Reactive statement to update mode when shapeCreationMode changes
-	$: {
-		if (shapeCreationMode && canvas) {
-			const newMode = getInitialMode(shapeCreationMode);
-			if (newMode !== mode) {
-				mode = newMode;
-				// Update cursor based on new mode
-				if (mode === Mode.drag) {
-					canvas.style.cursor = "default";
-				} else {
-					canvas.style.cursor = "crosshair";
-				}
-			}
-		}
+	let initialized = false;
+
+	$: if ((value !== null && value.boxes.length === 0 && !initialized) || (!initialized && shapeCreationMode)) {
+	    mode = getInitialMode(shapeCreationMode);
+	    initialized = true;
+	    if (canvas) {
+	        canvas.style.cursor = (mode === Mode.drag) ? "default" : "crosshair";
+	    }
 	}
-	
-	// Reactive statement to update mode when shapeCreationMode changes or when image loads
-	$: {
-		if (value !== null && value.boxes.length == 0 && shapeCreationMode) {
-			mode = getInitialMode(shapeCreationMode);
-		}
+
+	// Reset initialized when a new image is loaded (or boxes are cleared)
+	$: if (value !== null && value.boxes.length === 0) {
+	    initialized = false;
 	}
 
     export let imageUrl: string | null = null;
