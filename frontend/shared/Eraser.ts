@@ -194,25 +194,80 @@ export default class Eraser {
         polygon.updateBoundingBox();
         
         return polygon;
-    }      /**
-     * Erase from freehand using pixel-based masking - converts to polygon first
+    }    /**
+     * Erase from freehand using direct point masking - preserves original path structure
      */
     private eraseFromFreehand(freehand: FreehandPath, eraseMask: EraseMask): FreehandPath[] {
         if (freehand._points.length < 2) return [];
         
-        // Convert freehand to polygon for consistent erasing behavior
-        const polygon = this.freehandToPolygon(freehand);
+        // Create eraseData array if it doesn't exist, or update existing one
+        let eraseData = freehand.eraseData ? [...freehand.eraseData] : new Array(freehand._points.length).fill(false);
         
-        // Process erase on the polygon
-        const erasedPolygons = this.eraseFromPolygon(polygon, eraseMask);
-        
-        // Convert the result back to freehand paths
-        const result: FreehandPath[] = [];
-        for (const erasedPolygon of erasedPolygons) {
-            const newFreehand = this.polygonToFreehand(erasedPolygon, freehand);
-            result.push(newFreehand);
+        // Ensure eraseData has the same length as points
+        if (eraseData.length !== freehand._points.length) {
+            eraseData = new Array(freehand._points.length).fill(false);
         }
-          return result;
+        
+        // Check each point and nearby area for intersection with erase mask
+        for (let i = 0; i < freehand._points.length; i++) {
+            const point = freehand._points[i];
+            
+            // Check if point or its vicinity is erased
+            if (this.isPointOrVicinityErased(point, eraseMask)) {
+                eraseData[i] = true;
+            }
+        }
+        
+        // Check if any segments between consecutive points are erased
+        for (let i = 0; i < freehand._points.length - 1; i++) {
+            const start = freehand._points[i];
+            const end = freehand._points[i + 1];
+            
+            if (this.isLineSegmentErased(start, end, eraseMask, freehand.thickness)) {
+                eraseData[i] = true;
+                eraseData[i + 1] = true;
+            }
+        }
+        
+        // Count how much of the path is erased
+        const erasedCount = eraseData.filter(erased => erased).length;
+        const erasedRatio = erasedCount / freehand._points.length;
+        
+        // If most of the path is erased (>80%), remove it entirely
+        if (erasedRatio > 0.8) {
+            return [];
+        }
+        
+        // If very little is erased (<5%), return original
+        if (erasedRatio < 0.05) {
+            return [freehand];
+        }
+        
+        // Create new freehand with eraseData applied
+        const newFreehand = new FreehandPath(
+            freehand.renderCallBack,
+            freehand.onFinishCreation,
+            freehand.canvasWindow,
+            freehand.canvasXmin,
+            freehand.canvasYmin,
+            freehand.canvasXmax,
+            freehand.canvasYmax,
+            freehand.label,
+            freehand.color,
+            freehand.alpha,
+            freehand.minSize,
+            freehand.resizeHandleSize,
+            freehand.thickness,
+            freehand.selectedThickness,
+            freehand.scaleFactor
+        );
+        
+        // Copy all original points (preserve the path structure)
+        newFreehand._points = [...freehand._points];
+        newFreehand.eraseData = eraseData;
+        newFreehand.updateBoundingBox();
+        
+        return [newFreehand];
     }
     
     /**
@@ -599,5 +654,31 @@ export default class Eraser {
         }
         
         ctx.restore();
+    }
+    
+    /**
+     * Check if a point or its vicinity is erased (considering thickness of freehand path)
+     */
+    private isPointOrVicinityErased(point: { x: number, y: number }, eraseMask: EraseMask): boolean {
+        // Check the center point
+        if (this.isPointErased(point, eraseMask)) {
+            return true;
+        }
+        
+        // For freehand paths, also check nearby points within a small radius (thickness consideration)
+        const checkRadius = 2; // pixels
+        const checkPoints = [
+            { x: point.x + checkRadius, y: point.y },
+            { x: point.x - checkRadius, y: point.y },
+            { x: point.x, y: point.y + checkRadius },
+            { x: point.x, y: point.y - checkRadius },
+            { x: point.x + checkRadius * 0.7, y: point.y + checkRadius * 0.7 },
+            { x: point.x - checkRadius * 0.7, y: point.y - checkRadius * 0.7 },
+            { x: point.x + checkRadius * 0.7, y: point.y - checkRadius * 0.7 },
+            { x: point.x - checkRadius * 0.7, y: point.y + checkRadius * 0.7 }
+        ];
+        
+        // If any of the nearby points are erased, consider this point erased
+        return checkPoints.some(checkPoint => this.isPointErased(checkPoint, eraseMask));
     }
 }

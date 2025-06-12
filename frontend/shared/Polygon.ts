@@ -548,8 +548,17 @@ export default class Polygon {
                     const clampedX = Math.max(0, Math.min(newX, canvasW));
                     const clampedY = Math.max(0, Math.min(newY, canvasH));
                     
-                    // Update the specific vertex
-                    this._points[vertexIndex] = { x: clampedX, y: clampedY };
+                    // Calculate the movement delta
+                    const deltaX = clampedX - this._points[vertexIndex].x;
+                    const deltaY = clampedY - this._points[vertexIndex].y;
+                    
+                    // Apply smooth local deformation for polygons with many vertices
+                    if (this._points.length > 6) {
+                        this.applyPolygonLocalDeformation(vertexIndex, deltaX, deltaY);
+                    } else {
+                        // For simple polygons, just move the single vertex
+                        this._points[vertexIndex] = { x: clampedX, y: clampedY };
+                    }
                     
                     // Update bounding box and handles
                     this.updateBoundingBox();
@@ -591,5 +600,49 @@ export default class Polygon {
         this._points = rotatedPoints;
         this.updateBoundingBox();
         this.applyUserScale();
+    }
+
+    /**
+     * Apply smooth local deformation when moving a polygon vertex
+     * This affects neighboring vertices to maintain shape continuity for complex polygons
+     */
+    private applyPolygonLocalDeformation(centerIndex: number, deltaX: number, deltaY: number): void {
+        const totalPoints = this._points.length;
+        if (totalPoints < 4 || centerIndex < 0 || centerIndex >= totalPoints) return;
+        
+        // Define the influence radius (how many neighboring vertices to affect)
+        const influenceRadius = Math.min(2, Math.floor(totalPoints / 6));
+        
+        // Apply movement to the center vertex
+        this._points[centerIndex].x += deltaX;
+        this._points[centerIndex].y += deltaY;
+        
+        // Apply decreasing influence to neighboring vertices
+        for (let i = 1; i <= influenceRadius; i++) {
+            // Calculate influence strength (decreases with distance)
+            const influence = Math.exp(-i * 1.2); // Stronger falloff for polygons
+            
+            const adjustedDeltaX = deltaX * influence;
+            const adjustedDeltaY = deltaY * influence;
+            
+            // Apply to vertices before the center (with wrapping)
+            const prevIndex = (centerIndex - i + totalPoints) % totalPoints;
+            this._points[prevIndex].x += adjustedDeltaX;
+            this._points[prevIndex].y += adjustedDeltaY;
+            
+            // Apply to vertices after the center (with wrapping)
+            const nextIndex = (centerIndex + i) % totalPoints;
+            this._points[nextIndex].x += adjustedDeltaX;
+            this._points[nextIndex].y += adjustedDeltaY;
+        }
+        
+        // Ensure all points stay within canvas bounds
+        const canvasW = (this.canvasXmax - this.canvasXmin) / this.canvasWindow.scale;
+        const canvasH = (this.canvasYmax - this.canvasYmin) / this.canvasWindow.scale;
+        
+        this._points = this._points.map(point => ({
+            x: Math.max(0, Math.min(point.x, canvasW)),
+            y: Math.max(0, Math.min(point.y, canvasH))
+        }));
     }
 }

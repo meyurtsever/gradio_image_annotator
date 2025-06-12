@@ -164,30 +164,29 @@ export default class FreehandPath {
                 cursor: "move", // Use move cursor for direct point manipulation
             });
         }
-    }
-
-    private getFreehandControlPoints(): Array<{x: number, y: number, index: number}> {
+    }    private getFreehandControlPoints(): Array<{x: number, y: number, index: number}> {
         const points = this.points; // Use scaled points for handle positioning
         
-        if (points.length <= 8) {
-            // If we have 8 or fewer points, place handles on each point
+        if (points.length <= 6) {
+            // If we have 6 or fewer points, place handles on each point
             return points.map((point, index) => ({ ...point, index }));
         } else {
-            // For paths with more points, select key control points
+            // For paths with more points, select key control points intelligently
             const controlPoints: Array<{x: number, y: number, index: number}> = [];
             
             // Always include start and end points
             controlPoints.push({ ...points[0], index: 0 });
             controlPoints.push({ ...points[points.length - 1], index: points.length - 1 });
             
-            // Add intermediate points based on path curvature and distance
-            const maxControlPoints = 6; // Total of 8 including start/end
+            // Add intermediate points with better distribution
+            const maxControlPoints = 4; // 6 total including start/end for better performance
             if (points.length > 2) {
-                const step = Math.max(1, Math.floor(points.length / maxControlPoints));
+                const step = Math.floor(points.length / (maxControlPoints + 1));
                 
-                for (let i = step; i < points.length - 1; i += step) {
-                    if (controlPoints.length < 8) {
-                        controlPoints.push({ ...points[i], index: i });
+                for (let i = 1; i <= maxControlPoints; i++) {
+                    const pointIndex = Math.min(i * step, points.length - 2);
+                    if (pointIndex > 0 && pointIndex < points.length - 1) {
+                        controlPoints.push({ ...points[pointIndex], index: pointIndex });
                     }
                 }
             }
@@ -198,62 +197,6 @@ export default class FreehandPath {
         // Get the actual point index in the _points array
         const controlPoints = this.getFreehandControlPoints();
         return handleIndex < controlPoints.length ? controlPoints[handleIndex].index : -1;
-    }
-
-    private smoothLocalDeformation(pointIndex: number, newX: number, newY: number): void {
-        // Apply local smoothing to maintain natural curve shape when moving control points
-        if (pointIndex < 0 || pointIndex >= this._points.length) return;
-        
-        // Update the target point
-        this._points[pointIndex] = { x: newX, y: newY };
-        
-        // Apply gentle influence to neighboring points for smooth deformation
-        const influenceRadius = 3; // Number of neighboring points to influence
-        const maxInfluence = 0.3; // Maximum influence strength
-        
-        for (let i = 1; i <= influenceRadius; i++) {
-            const leftIndex = pointIndex - i;
-            const rightIndex = pointIndex + i;
-            
-            // Calculate influence strength (decreases with distance)
-            const influence = maxInfluence * (1 - i / (influenceRadius + 1));
-            
-            // Apply influence to left neighbor
-            if (leftIndex >= 0) {
-                const currentPoint = this._points[leftIndex];
-                const targetDistance = Math.sqrt(
-                    Math.pow(newX - currentPoint.x, 2) + Math.pow(newY - currentPoint.y, 2)
-                );
-                
-                if (targetDistance > 0) {
-                    const moveX = (newX - currentPoint.x) * influence * 0.1;
-                    const moveY = (newY - currentPoint.y) * influence * 0.1;
-                    
-                    this._points[leftIndex] = {
-                        x: currentPoint.x + moveX,
-                        y: currentPoint.y + moveY
-                    };
-                }
-            }
-            
-            // Apply influence to right neighbor
-            if (rightIndex < this._points.length) {
-                const currentPoint = this._points[rightIndex];
-                const targetDistance = Math.sqrt(
-                    Math.pow(newX - currentPoint.x, 2) + Math.pow(newY - currentPoint.y, 2)
-                );
-                
-                if (targetDistance > 0) {
-                    const moveX = (newX - currentPoint.x) * influence * 0.1;
-                    const moveY = (newY - currentPoint.y) * influence * 0.1;
-                    
-                    this._points[rightIndex] = {
-                        x: currentPoint.x + moveX,
-                        y: currentPoint.y + moveY
-                    };
-                }
-            }
-        }
     }
 
     getWidth(): number {
@@ -550,8 +493,12 @@ export default class FreehandPath {
                     const clampedX = Math.max(0, Math.min(newX, canvasW));
                     const clampedY = Math.max(0, Math.min(newY, canvasH));
                     
-                    // Apply local deformation to maintain natural curve shape
-                    this.smoothLocalDeformation(controlPointIndex, clampedX, clampedY);
+                    // Calculate the movement delta
+                    const deltaX = clampedX - this._points[controlPointIndex].x;
+                    const deltaY = clampedY - this._points[controlPointIndex].y;
+                    
+                    // Apply smooth local deformation with neighboring points
+                    this.applyLocalDeformation(controlPointIndex, deltaX, deltaY);
                     
                     // Update bounding box and handles
                     this.updateBoundingBox();
@@ -678,5 +625,51 @@ export default class FreehandPath {
         }
         ctx.closePath();
         ctx.fill();
+    }
+
+    /**
+     * Apply smooth local deformation when moving a control point
+     * This affects neighboring points to maintain curve continuity
+     */
+    private applyLocalDeformation(centerIndex: number, deltaX: number, deltaY: number): void {
+        const totalPoints = this._points.length;
+        if (totalPoints < 3 || centerIndex < 0 || centerIndex >= totalPoints) return;
+        
+        // Define the influence radius (how many neighboring points to affect)
+        const influenceRadius = Math.min(3, Math.floor(totalPoints / 4));
+        
+        // Apply movement to the center point
+        this._points[centerIndex].x += deltaX;
+        this._points[centerIndex].y += deltaY;
+        
+        // Apply decreasing influence to neighboring points
+        for (let i = 1; i <= influenceRadius; i++) {
+            // Calculate influence strength (decreases with distance)
+            const influence = Math.exp(-i * 0.8); // Exponential falloff
+            
+            const adjustedDeltaX = deltaX * influence;
+            const adjustedDeltaY = deltaY * influence;
+            
+            // Apply to points before the center
+            if (centerIndex - i >= 0) {
+                this._points[centerIndex - i].x += adjustedDeltaX;
+                this._points[centerIndex - i].y += adjustedDeltaY;
+            }
+            
+            // Apply to points after the center
+            if (centerIndex + i < totalPoints) {
+                this._points[centerIndex + i].x += adjustedDeltaX;
+                this._points[centerIndex + i].y += adjustedDeltaY;
+            }
+        }
+        
+        // Ensure all points stay within canvas bounds
+        const canvasW = (this.canvasXmax - this.canvasXmin) / this.canvasWindow.scale;
+        const canvasH = (this.canvasYmax - this.canvasYmin) / this.canvasWindow.scale;
+        
+        this._points = this._points.map(point => ({
+            x: Math.max(0, Math.min(point.x, canvasW)),
+            y: Math.max(0, Math.min(point.y, canvasH))
+        }));
     }
 }
