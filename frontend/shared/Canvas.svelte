@@ -2,6 +2,7 @@
 	import { onMount, onDestroy, createEventDispatcher } from "svelte";	import { BoundingBox, Hand, Trash, Label, Freehand, Circle, Polygon, Erase, UndoIcon, RedoIcon, DropdownArrow, Bulb, ClearShapes } from "./icons/index";
 	import ModalBox from "./ModalBox.svelte";
 	import EraserSettingsModal from "./EraserSettingsModal.svelte";
+	import ShapeSettingsModal from "./ShapeSettingsModal.svelte";
 	import Box from "./Box";
 	import CircleShape from "./Circle";
 	import FreehandPath from "./FreehandPath";
@@ -38,8 +39,7 @@
 	$: labelVisibility = showLabels;
 
 	let initialized = false;
-
-	$: if ((value !== null && value.boxes.length === 0 && !initialized) || (!initialized && shapeCreationMode)) {
+	$: if ((value !== null && value.boxes && value.boxes.length === 0 && !initialized) || (!initialized && shapeCreationMode)) {
 	    mode = getInitialMode(shapeCreationMode);
 	    initialized = true;
 	    if (canvas) {
@@ -48,17 +48,13 @@
 	}
 
 	// Reset initialized when a new image is loaded (or boxes are cleared)
-	$: if (value !== null && value.boxes.length === 0) {
+	$: if (value !== null && value.boxes && value.boxes.length === 0) {
 	    initialized = false;
 	}
 
-    export let imageUrl: string | null = null;
-	export let interactive: boolean;
-	export let boxAlpha = 0.5;
+    export let imageUrl: string | null = null;	export let interactive: boolean;
 	export let boxMinSize = 10;
 	export let handleSize: number;
-	export let boxThickness: number;
-	export let boxSelectedThickness: number;
 	export let value: null | AnnotatedImageData;
 	export let choices = [];
     export let choicesColors = [];
@@ -96,13 +92,12 @@
 			default:
 				return Mode.drag;
 		}
-	}
-		// Set initial mode based on shape_creation_mode parameter
+	}		// Set initial mode based on shape_creation_mode parameter
 	// When there are no existing shapes, use the specified creation mode
 	// When there are existing shapes, default to drag mode unless explicitly set to a creation mode
-	if (value !== null && value.boxes.length == 0) {
+	if (value !== null && value.boxes && value.boxes.length == 0) {
 		mode = getInitialMode(shapeCreationMode);
-	} else if (value !== null && value.boxes.length > 0) {
+	} else if (value !== null && value.boxes && value.boxes.length > 0) {
 		// If there are existing shapes, use drag mode unless explicitly set to a creation mode
 		mode = shapeCreationMode === "drag" ? Mode.drag : getInitialMode(shapeCreationMode);
 	} else {
@@ -116,12 +111,17 @@
 	let scaleFactor = 1.0;
 
 	let imageWidth = 0;
-	let imageHeight = 0;	let editModalVisible = false;
-	let newModalVisible = false;
+	let imageHeight = 0;	let editModalVisible = false;	let newModalVisible = false;
 	let editDefaultLabelVisible = false;
 	let eraserSettingsVisible = false;
+	let shapeSettingsVisible = false;
 	let currentPolygon: PolygonShape | null = null; // Track current polygon being created
 	let eraserSize = 10; // Default eraser size
+	
+	// Shape settings
+	let shapeOpacity = 0.5;
+	let shapeStrokeWidth = 2;
+	let shapeSelectedStrokeWidth = 4;
 
 	let labelDetailLock = useDefaultLabel;
 	let defaultLabelCache = {
@@ -147,15 +147,13 @@
 		const b = parseInt(rgbaValues[2]);
 		const hex = "#" + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
 		return hex;
-	}
-	
-    function draw() {
+	}    function draw() {
 		if (ctx) {
 			ctx.clearRect(0, 0, canvas.width, canvas.height);
 			ctx.save();
 			ctx.translate(canvasWindow.offsetX, canvasWindow.offsetY);
 			ctx.scale(canvasWindow.scale, canvasWindow.scale);
-			if (image !== null){
+			if (image !== null && value !== null){
 				switch (value.orientation) {
 					case 0:
 						ctx.drawImage(image, 0, 0, imageWidth, imageHeight);
@@ -180,8 +178,12 @@
 
 				ctx.restore();
 				// ctx.resetTransform();
-			}			for (const box of value.boxes.slice().reverse()) {
-				box.render(ctx, showLabels);
+			}
+			
+			if (value !== null && value.boxes) {
+				for (const box of value.boxes.slice().reverse()) {
+					box.render(ctx, showLabels);
+				}
 			}
 			
 			// Render the erase path if erasing
@@ -189,14 +191,15 @@
 				eraser.renderErasePath(ctx);
 			}
 		}
-	}
-
-    function selectBox(index: number) {
+	}    function selectBox(index: number) {
 		selectedBox = index;
-		value.boxes.forEach(box => {box.setSelected(false);});
-		if (index >= 0 && index < value.boxes.length){
-			value.boxes[index].setSelected(true);
-		}		draw();
+		if (value !== null && value.boxes) {
+			value.boxes.forEach(box => {box.setSelected(false);});
+			if (index >= 0 && index < value.boxes.length){
+				value.boxes[index].setSelected(true);
+			}
+		}
+		draw();
 	}
 		function handlePointerDown(event: PointerEvent) {
 		if (!interactive) {
@@ -224,12 +227,17 @@
 		} else if (mode === Mode.drag) {
 			clickBox(event);
 		}
-	}function clickBox(event: PointerEvent) {
+	}	function clickBox(event: PointerEvent) {
 		console.log("clickBox function called, mode:", mode === Mode.drag ? "drag" : "creation");
 		const rect = canvas.getBoundingClientRect();
 		const mouseX = event.clientX - rect.left;
 		const mouseY = event.clientY - rect.top;
 		let selectedBoxFlag = false;
+		
+		if (value === null || !value.boxes) {
+			return;
+		}
+		
 		// Check if the mouse is over any of the resizing handles
 		for (const [i, box] of value.boxes.entries()) {
 			const handleIndex = box.indexOfPointInsideHandle(mouseX, mouseY);
@@ -791,8 +799,7 @@
 			return existingShape;
 		} else {
 			// Create new shape
-			switch (data.type) {
-				case 'freehand':
+			switch (data.type) {				case 'freehand':
 					const freehand = new FreehandPath(
 						draw,
 						onBoxFinishCreation,
@@ -803,17 +810,16 @@
 						canvasYmax,
 						data.label,
 						data.color,
-						boxAlpha,
+						shapeOpacity,
 						boxMinSize,
 						handleSize,
-						boxThickness,
-						boxSelectedThickness
+						shapeStrokeWidth,
+						shapeSelectedStrokeWidth
 					);
 					freehand._points = [...data.points];
 					freehand.updateBoundingBox();
 					return freehand;
-					
-				case 'polygon':
+							case 'polygon':
 					const polygon = new PolygonShape(
 						draw,
 						onBoxFinishCreation,
@@ -824,16 +830,15 @@
 						canvasYmax,
 						data.label,
 						data.color,
-						boxAlpha,
+						shapeOpacity,
 						boxMinSize,
 						handleSize,
-						boxThickness,
-						boxSelectedThickness
+						shapeStrokeWidth,
+						shapeSelectedStrokeWidth
 					);					polygon._points = [...data.points];
 					polygon.updateBoundingBox();
 					return polygon;
-					
-				case 'circle':
+							case 'circle':
 					return new CircleShape(
 						draw,
 						onBoxFinishCreation,
@@ -847,15 +852,14 @@
 						data.centerY,
 						data.radius,
 						data.color,
-						boxAlpha,
+						shapeOpacity,
 						boxMinSize,
 						handleSize,
-						boxThickness,
-						boxSelectedThickness
+						shapeStrokeWidth,
+						shapeSelectedStrokeWidth
 					);
 					
-				case 'box':
-					return new Box(
+				case 'box':					return new Box(
 						draw,
 						onBoxFinishCreation,
 						canvasWindow,
@@ -869,11 +873,10 @@
 						data.xmax,
 						data.ymax,
 						data.color,
-						boxAlpha,
+						shapeOpacity,
 						boxMinSize,
-						handleSize,
-						boxThickness,
-						boxSelectedThickness
+						handleSize,						shapeStrokeWidth,
+						shapeSelectedStrokeWidth
 					);
 			}
 		}
@@ -893,8 +896,7 @@
 		} else {
 			color = Colors[value.boxes.length % Colors.length];
 		}
-		
-		let freehandPath = new FreehandPath(
+				let freehandPath = new FreehandPath(
 			draw,
 			onBoxFinishCreation,
 			canvasWindow,
@@ -904,11 +906,11 @@
 			canvasYmax,
 			"",
 			color,
-			boxAlpha,
+			shapeOpacity,
 			boxMinSize,
 			handleSize,
-			boxThickness,
-			boxSelectedThickness
+			shapeStrokeWidth,
+			shapeSelectedStrokeWidth
 		);
 		freehandPath.startCreating(event, rect.left, rect.top);
 		if (singleBox) {
@@ -962,8 +964,7 @@
 		} else {
 			color = Colors[value.boxes.length % Colors.length];
 		}
-		
-		let polygon = new PolygonShape(
+				let polygon = new PolygonShape(
 			draw,
 			onPolygonFinishCreation,
 			canvasWindow,
@@ -973,11 +974,11 @@
 			canvasYmax,
 			"",
 			color,
-			boxAlpha,
+			shapeOpacity,
 			boxMinSize,
 			handleSize,
-			boxThickness,
-			boxSelectedThickness
+			shapeStrokeWidth,
+			shapeSelectedStrokeWidth
 		);
 		
 		// Set up point addition callback for undo/redo
@@ -1023,8 +1024,7 @@
 		} else {
 			color = Colors[value.boxes.length % Colors.length];
 		}
-		
-		let box = new Box(
+				let box = new Box(
 			draw,
 			onBoxFinishCreation,
 			canvasWindow,
@@ -1038,11 +1038,11 @@
 			x,
 			y,
 			color,
-			boxAlpha,
+			shapeOpacity,
 			boxMinSize,
 			handleSize,
-			boxThickness,
-			boxSelectedThickness
+			shapeStrokeWidth,
+			shapeSelectedStrokeWidth
 		);
 		box.startCreating(event, rect.left, rect.top);
 		if (singleBox) {
@@ -1087,14 +1087,13 @@
 			canvasYmax,
 			"",
 			x,
-			y,
-			0, // Initial radius
+			y,			0, // Initial radius
 			color,
-			boxAlpha,
+			shapeOpacity,
 			boxMinSize,
 			handleSize,
-			boxThickness,
-			boxSelectedThickness		);
+			shapeStrokeWidth,
+			shapeSelectedStrokeWidth);
 		circle.startCreating(event);
 		if (singleBox) {
 			value.boxes = [circle];
@@ -1201,9 +1200,36 @@
 			eraser.setBrushSize(eraserSize);
 		}
 	}
-
 	function handleEraserSettingsClose() {
 		eraserSettingsVisible = false;
+	}
+	
+	function openShapeSettings() {
+		shapeSettingsVisible = true;
+	}
+
+	function handleShapeSettingsChange(event: CustomEvent<{ opacity: number; strokeWidth: number; selectedStrokeWidth: number; }>) {
+		shapeOpacity = event.detail.opacity;
+		shapeStrokeWidth = event.detail.strokeWidth;
+		shapeSelectedStrokeWidth = event.detail.selectedStrokeWidth;
+		
+		// Update all existing shapes with new settings
+		updateAllShapesSettings();
+		draw();
+	}
+
+	function handleShapeSettingsClose() {
+		shapeSettingsVisible = false;
+	}
+	function updateAllShapesSettings() {
+		// Update all shapes in the boxes array
+		for (let shape of value.boxes) {
+			// Cast to any to access shape-specific properties
+			const s = shape as any;
+			if (s.alpha !== undefined) s.alpha = shapeOpacity;
+			if (s.thickness !== undefined) s.thickness = shapeStrokeWidth;
+			if (s.selectedThickness !== undefined) s.selectedThickness = shapeSelectedStrokeWidth;
+		}
 	}
 	function setCreateMode() {
 		mode = Mode.creation;
@@ -1341,10 +1367,10 @@
 		}
 	}
 	function onModalEditChange(event) {
-		editModalVisible = false;
-		const { detail } = event;
+		editModalVisible = false;		const { detail } = event;
 		let label = detail.label;
 		let color = detail.color;
+		let opacity = detail.opacity;
 		let ret = detail.ret;
 		if (selectedBox >= 0 && selectedBox < value.boxes.length) {
 			let box = value.boxes[selectedBox];
@@ -1357,6 +1383,9 @@
 				
 				box.label = label;
 				box.color = colorHexToRGB(color);
+				if (opacity !== undefined) {
+					box.alpha = opacity;
+				}
 				
 				// Store new state and add undo action
 				const newShapeData = cloneShapeData(box);
@@ -1571,9 +1600,12 @@
 			}
 			draw();
 			dispatch("change");
+		}	}
+	const observer = new ResizeObserver(resize);
+		function parseInputBoxes() {
+		if (value === null || !value.boxes) {
+			return;
 		}
-	}
-	const observer = new ResizeObserver(resize);	function parseInputBoxes() {
 		for (let i = 0; i < value.boxes.length; i++) {
 			let box = value.boxes[i];
 			if (!(box instanceof Box) && !(box instanceof FreehandPath) && !(box instanceof PolygonShape) && !(box instanceof CircleShape)) {
@@ -1590,8 +1622,7 @@
 				if (box.hasOwnProperty("label")) {
 					label = box["label"];
 				}
-				
-				// Check if it's a freehand path
+						// Check if it's a freehand path
 				if (box.hasOwnProperty("type") && box["type"] === "freehand" && box.hasOwnProperty("points")) {
 					let freehandPath = new FreehandPath(
 						draw,
@@ -1603,16 +1634,15 @@
 						canvasYmax,
 						label,
 						color,
-						boxAlpha,
+						shapeOpacity,
 						boxMinSize,
 						handleSize,
-						boxThickness,
-						boxSelectedThickness
+						shapeStrokeWidth,
+						shapeSelectedStrokeWidth
 					);
 					freehandPath._points = box["points"];
 					freehandPath.updateBoundingBox();
-					box = freehandPath;
-				} else if (box.hasOwnProperty("type") && box["type"] === "circle" && box.hasOwnProperty("centerX") && box.hasOwnProperty("centerY") && box.hasOwnProperty("radius")) {
+					box = freehandPath;				} else if (box.hasOwnProperty("type") && box["type"] === "circle" && box.hasOwnProperty("centerX") && box.hasOwnProperty("centerY") && box.hasOwnProperty("radius")) {
 					// Handle circle shapes
 					let circle = new CircleShape(
 						draw,
@@ -1627,14 +1657,13 @@
 						box["centerY"],
 						box["radius"],
 						color,
-						boxAlpha,
+						shapeOpacity,
 						boxMinSize,
 						handleSize,
-						boxThickness,
-						boxSelectedThickness
+						shapeStrokeWidth,
+						shapeSelectedStrokeWidth
 					);
-					box = circle;
-				} else if (box.hasOwnProperty("type") && box["type"] === "polygon" && box.hasOwnProperty("points")) {
+					box = circle;				} else if (box.hasOwnProperty("type") && box["type"] === "polygon" && box.hasOwnProperty("points")) {
 					// Handle polygon shapes
 					let polygon = new PolygonShape(
 						draw,
@@ -1646,16 +1675,15 @@
 						canvasYmax,
 						label,
 						color,
-						boxAlpha,
+						shapeOpacity,
 						boxMinSize,
 						handleSize,
-						boxThickness,
-						boxSelectedThickness
+						shapeStrokeWidth,
+						shapeSelectedStrokeWidth
 					);
 					polygon._points = box["points"];
 					polygon.updateBoundingBox();
-					box = polygon;
-				} else {
+					box = polygon;				} else {
 					// Regular box
 					box = new Box(
 						draw,
@@ -1671,27 +1699,27 @@
 						box["xmax"],
 						box["ymax"],
 						color,
-						boxAlpha,
+						shapeOpacity,
 						boxMinSize,
 						handleSize,
-						boxThickness,
-						boxSelectedThickness
+						shapeStrokeWidth,
+						shapeSelectedStrokeWidth
 					);
 				}
 				value.boxes[i] = box;
 			}
 		}
 	}
-
 	$: {
 		value;
-		canvasWindow.orientation = value.orientation;
+		if (value !== null) {
+			canvasWindow.orientation = value.orientation;
+		}
 		setImage();
 		parseInputBoxes();
 		resize();
 		draw();
 	}
-
 	function setImage(){
 		if (imageUrl !== null) {
 			if (image === null || image.src != imageUrl) {
@@ -1702,6 +1730,9 @@
 					draw();
 				}
 			}
+		} else {
+			// Clear the image when imageUrl is null
+			image = null;
 		}
 	}
 	onMount(() => {
@@ -1896,17 +1927,26 @@
 				<RedoIcon/>
 			</button>
 			<span class="tool-label">Redo</span>		</div>		<div class="tool-group">
-			<button
-				class="icon tool-button"
-				class:selected={labelVisibility}
-				aria-label="Show/Hide labels"
-				on:click={() => { 
-					showLabels = !showLabels; 
-					draw(); 
-				}}
-			>
-				<Bulb selected={labelVisibility} />
-			</button>
+			<div class="button-group">
+				<button
+					class="icon tool-button"
+					class:selected={labelVisibility}
+					aria-label="Show/Hide labels"
+					on:click={() => { 
+						showLabels = !showLabels; 
+						draw(); 
+					}}
+				>
+					<Bulb selected={labelVisibility} />
+				</button>
+				<button
+					class="icon dropdown-button"
+					aria-label="Shape settings"
+					on:click={openShapeSettings}
+				>
+					<DropdownArrow/>
+				</button>
+			</div>
 			<span class="tool-label">Labels</span>
 		</div>
 		<div class="tool-group">
@@ -1930,6 +1970,8 @@
 		choicesColors={choicesColors}
 		label={selectedBox >= 0 && selectedBox < value.boxes.length ? value.boxes[selectedBox].label : ""}
 		color={selectedBox >= 0 && selectedBox < value.boxes.length ? colorRGBAToHex(value.boxes[selectedBox].color) : ""}
+		opacity={selectedBox >= 0 && selectedBox < value.boxes.length ? value.boxes[selectedBox].alpha : 0.5}
+		showOpacity={true}
 	/>
 {/if}
 
@@ -1970,6 +2012,15 @@
 	on:close={handleEraserSettingsClose}
 />
 
+<ShapeSettingsModal
+	bind:visible={shapeSettingsVisible}
+	bind:opacity={shapeOpacity}
+	bind:strokeWidth={shapeStrokeWidth}
+	bind:selectedStrokeWidth={shapeSelectedStrokeWidth}
+	on:change={handleShapeSettingsChange}
+	on:close={handleShapeSettingsClose}
+/>
+
 <style>
 	.canvas-annotator {
 		border-color: var(--block-border-color);
@@ -2005,7 +2056,6 @@
 	.eraser-group {
 		position: relative;
 	}
-
 	.eraser-buttons {
 		display: flex;
 		align-items: center;
@@ -2013,12 +2063,22 @@
 		gap: 0;
 	}
 
+	.button-group {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0;
+	}
+
 	.eraser-group .tool-button,
-	.eraser-group .dropdown-button {
+	.eraser-group .dropdown-button,
+	.button-group .tool-button,
+	.button-group .dropdown-button {
 		margin: 0;
 	}
 
-	.eraser-group .dropdown-button {
+	.eraser-group .dropdown-button,
+	.button-group .dropdown-button {
 		width: 16px;
 		height: 16px;
 		padding: 2px;

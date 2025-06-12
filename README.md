@@ -44,15 +44,15 @@ example_annotation = {
 def handle_select(evt: gr.SelectData):
     """Handle select events from the image annotator"""
     coordinates = evt.value
-    #print('triggered the select event')
-    #print(f'Event data: {evt}')
-    #print(f'Coordinates: {coordinates}')
+    # print('triggered the select event')
+    # print(f'Event data: {evt}')
+    # print(f'Coordinates: {coordinates}')
     return f"Clicked at coordinates: ({coordinates[0]}, {coordinates[1]})"
 
 def handle_change(evt):
     """Handle change events from the image annotator"""
-    print('Change event triggered')
-    print(f'Change event data: {evt}')
+    # print('Change event triggered')
+    # print(f'Change event data: {evt}')
 
 
 with gr.Blocks() as demo:
@@ -66,6 +66,7 @@ with gr.Blocks() as demo:
         example_annotation,
         label_list=["Person", "Vehicle"],
         label_colors=[(0, 255, 0), (255, 0, 0)],
+        shape_creation_mode="drag",  # Set to 'hand' mode for click events
     )
     
     coordinates_display = gr.Textbox(
@@ -106,7 +107,7 @@ dict | None
 
 </td>
 <td align="left"><code>None</code></td>
-<td align="left">A dict or None. The dictionary must contain a key 'image' with either an URL to an image, a numpy image or a PIL image. Optionally it may contain a key 'boxes' with a list of boxes. Each box must be a dict wit the keys: 'xmin', 'ymin', 'xmax' and 'ymax' with the absolute image coordinates of the box. Optionally can also include the keys 'label' and 'color' describing the label and color of the box. Color must be a tuple of RGB values (e.g. `(255,255,255)`). Optionally can also include the keys 'orientation' with a integer between 0 and 3, describing the number of times the image is rotated by 90 degrees in frontend, the rotation is clockwise.</td>
+<td align="left">A dict or None. The dictionary must contain a key 'image' with either an URL to an image, a numpy image or a PIL image. Optionally it may contain a key 'boxes' with a list of boxes. Each box must be a dict with the keys based on shape type: For regular boxes: 'xmin', 'ymin', 'xmax' and 'ymax' with the absolute image coordinates. For freehand paths: 'type' set to 'freehand', 'points' array with x,y coordinates, and 'label'. For circles: 'type' set to 'circle', 'centerX', 'centerY', 'radius', and 'label'. For polygons: 'type' set to 'polygon', 'points' array with x,y coordinates, and 'label'. All boxes can optionally include 'label' and 'color' keys. Color must be a tuple of RGB values (e.g. `(255,255,255)`). Optionally can also include the keys 'orientation' with an integer between 0 and 3, describing the number of times the image is rotated by 90 degrees in frontend, the rotation is clockwise.</td>
 </tr>
 
 <tr>
@@ -507,6 +508,84 @@ bool
 </td>
 <td align="left"><code>False</code></td>
 <td align="left">If True, the first item in label_list will be used as the default label when creating boxes.</td>
+</tr>
+
+<tr>
+<td align="left"><code>eraser_size</code></td>
+<td align="left" style="width: 25%;">
+
+```python
+int
+```
+
+</td>
+<td align="left"><code>10</code></td>
+<td align="left">Default size of the eraser brush in pixels.</td>
+</tr>
+
+<tr>
+<td align="left"><code>enable_freehand</code></td>
+<td align="left" style="width: 25%;">
+
+```python
+bool
+```
+
+</td>
+<td align="left"><code>True</code></td>
+<td align="left">If True, enables freehand drawing mode.</td>
+</tr>
+
+<tr>
+<td align="left"><code>enable_circle</code></td>
+<td align="left" style="width: 25%;">
+
+```python
+bool
+```
+
+</td>
+<td align="left"><code>True</code></td>
+<td align="left">If True, enables circle drawing mode.</td>
+</tr>
+
+<tr>
+<td align="left"><code>enable_polygon</code></td>
+<td align="left" style="width: 25%;">
+
+```python
+bool
+```
+
+</td>
+<td align="left"><code>True</code></td>
+<td align="left">If True, enables polygon drawing mode.            enable_eraser: If True, enables eraser mode for pixel-based shape erasing.</td>
+</tr>
+
+<tr>
+<td align="left"><code>enable_eraser</code></td>
+<td align="left" style="width: 25%;">
+
+```python
+bool
+```
+
+</td>
+<td align="left"><code>True</code></td>
+<td align="left">If True, enables eraser mode for pixel-based shape erasing.</td>
+</tr>
+
+<tr>
+<td align="left"><code>shape_creation_mode</code></td>
+<td align="left" style="width: 25%;">
+
+```python
+"drag" | "box" | "freehand" | "circle" | "polygon"
+```
+
+</td>
+<td align="left"><code>"drag"</code></td>
+<td align="left">Default shape creation mode when the component is first loaded. Options: "drag" (default), "box", "freehand", "circle", "polygon".</td>
 </tr>
 </tbody></table>
 

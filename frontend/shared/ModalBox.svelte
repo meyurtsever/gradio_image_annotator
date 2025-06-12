@@ -4,30 +4,31 @@
     import { BaseDropdown } from "./patched_dropdown/Index.svelte";
 	import { createEventDispatcher } from "svelte";
     import { onMount, onDestroy } from "svelte";
-    import { Lock, Unlock } from "./icons/index";
-
-    export let label = "";
+    import { Lock, Unlock } from "./icons/index";    export let label = "";
     export let currentLabel = "";
     export let choices = [];  // [(label, i)]
     export let choicesColors = [];
     export let color = "";
     export let currentColor = "";
+    export let opacity = 0.5;
+    export let currentOpacity = 0.5;
     export let showRemove = true;
     export let labelDetailLock = false;
+    export let showOpacity = false; // New prop to control opacity visibility
       const dispatch = createEventDispatcher<{
 		change: object;
 	}>();    // Reactive statements to keep current values in sync with props
     $: currentLabel = label || "";
     $: currentColor = color || "";
-
-    function dispatchChange(ret: number) {
+    $: currentOpacity = opacity || 0.5;    function dispatchChange(ret: number) {
         dispatch("change", {
             label: currentLabel,
             color: currentColor,
+            opacity: currentOpacity,
             lock: labelDetailLock,
             ret: ret // -1: remove, 0: cancel, 1: change
         });
-    }    function onDropDownChange(event) {
+    }function onDropDownChange(event) {
         const { detail } = event;
 		let choice = detail;
 
@@ -41,11 +42,13 @@
         } else {
             currentLabel = choice;
         }
-    }
-
-    function onColorChange(event) {
+    }    function onColorChange(event) {
         const { detail } = event;
 		currentColor = detail;
+    }
+
+    function onOpacityChange(event) {
+        currentOpacity = parseFloat(event.target.value);
     }
 
     function onDropDownEnter(event) {
@@ -64,10 +67,10 @@
 				break;
 		}
 	}	onMount(() => {
-		document.addEventListener("keydown", handleKeyPress);
-        // Set initial values from props, with fallbacks to first choice if available
+		document.addEventListener("keydown", handleKeyPress);        // Set initial values from props, with fallbacks to first choice if available
         currentLabel = label || (choices.length > 0 ? choices[0][0] : "");
         currentColor = color || (choicesColors.length > 0 ? choicesColors[0] : "");
+        currentOpacity = opacity || 0.5;
 	});
     
 	onDestroy(() => {
@@ -100,8 +103,7 @@
                     on:change={onDropDownChange}
                     on:enter={onDropDownEnter}
                 />
-            </div>
-            <div style="margin-right: 40px; margin-bottom: 8px;">
+            </div>            <div style="margin-right: 40px; margin-bottom: 8px;">
                 <BaseColorPicker
                     value={currentColor}
                     label="Color"
@@ -109,6 +111,26 @@
                     on:change={onColorChange}
                 />
             </div>
+            {#if showOpacity}
+            <div style="margin-right: 20px; margin-bottom: 8px; display: flex; flex-direction: column; align-items: center; min-width: 120px;">
+                <label for="opacity-slider" style="font-size: 12px; margin-bottom: 4px; color: var(--body-text-color);">Opacity</label>
+                <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
+                    <input
+                        id="opacity-slider"
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        bind:value={currentOpacity}
+                        on:input={onOpacityChange}
+                        style="flex: 1; height: 4px; background: var(--slider-color); border-radius: 2px; outline: none; appearance: none; -webkit-appearance: none;"
+                    />
+                    <span style="font-size: 11px; color: var(--body-text-color-subdued); min-width: 30px; text-align: center;">
+                        {Math.round(currentOpacity * 100)}%
+                    </span>
+                </div>
+            </div>
+            {/if}
             <div style="margin-right: 8px;">
                 <BaseButton
                 on:click={() => dispatchChange(0)}

@@ -4,6 +4,11 @@
 	import { Clear } from "@gradio/icons";
 
 	const dispatch = createEventDispatcher();
+
+	function clear() {
+		dispatch("clear");
+		dispatch("change");
+	}
 </script>
 
 <div>
@@ -11,7 +16,7 @@
 		Icon={Clear}
 		label="Remove Image"
 		on:click={(event) => {
-			dispatch("remove_image");
+			clear();
 			event.stopPropagation();
 		}}
 	/>

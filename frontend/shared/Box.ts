@@ -281,19 +281,20 @@ export default class Box {
             ctx.strokeStyle = "black";
             ctx.strokeRect(labelX, labelY, labelWidth, labelHeight);
             ctx.fillStyle = "black";
-            ctx.fillText(this.label, labelX + 5, labelY + 15);
-        }
+            ctx.fillText(this.label, labelX + 5, labelY + 15);        }
 
-        // Render the handles
-        ctx.fillStyle = setAlpha(this.color, 1);
-        for (const handle of this.resizeHandles) {
-            [xmin, ymin] = this.toCanvasCoordinates(handle.xmin, handle.ymin);
-            ctx.fillRect(
-                xmin,
-                ymin,
-                handle.xmax - handle.xmin,
-                handle.ymax - handle.ymin,
-            );
+        // Render the handles only if selected
+        if (this.isSelected) {
+            ctx.fillStyle = setAlpha(this.color, 1);
+            for (const handle of this.resizeHandles) {
+                [xmin, ymin] = this.toCanvasCoordinates(handle.xmin, handle.ymin);
+                ctx.fillRect(
+                    xmin,
+                    ymin,
+                    handle.xmax - handle.xmin,
+                    handle.ymax - handle.ymin,
+                );
+            }
         }
     }    startDrag(event: MouseEvent): void {
         this.isDragging = true;

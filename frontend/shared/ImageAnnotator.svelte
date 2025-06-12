@@ -95,9 +95,14 @@
 				break;
 		}
 	}
-
 	function clear() {
 		value = null;
+		// Reset any cached upload state
+		uploading = false;
+		// Reset active source to force component refresh
+		if (sources && sources.length > 0) {
+			active_source = sources[0];
+		}
 		dispatch("clear");
 		dispatch("change");
 	}
