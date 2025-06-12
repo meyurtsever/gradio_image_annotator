@@ -405,58 +405,60 @@ export default class Eraser {
         
         return intersectionCount >= threshold;
     }
-    
-    /**
+      /**
      * Erase from polygon using pixel-based masking
      */
     private eraseFromPolygon(polygon: PolygonShape, eraseMask: EraseMask): PolygonShape[] {
         if (polygon._points.length < 3) return [];
         
-        // Sample points along polygon edges and check which are erased
-        const newPoints: { x: number, y: number }[] = [];
+        // Check which original vertices should be kept
+        const survivingPoints: { x: number, y: number }[] = [];
         
         for (let i = 0; i < polygon._points.length; i++) {
             const currentPoint = polygon._points[i];
             const nextPoint = polygon._points[(i + 1) % polygon._points.length];
             
-            // Sample points along the edge between current and next point
-            const edgePoints = this.sampleEdgePoints(currentPoint, nextPoint, 2); // Sample every 2 pixels
+            // Check if current vertex is erased
+            const currentErased = this.isPointErased(currentPoint, eraseMask);
             
-            let lastUnerased: { x: number, y: number } | null = null;
+            // Always add the current point if it's not erased
+            if (!currentErased) {
+                survivingPoints.push(currentPoint);
+            }
             
-            for (const samplePoint of edgePoints) {
-                const isErased = this.isPointErased(samplePoint, eraseMask);
+            // Check the edge between current and next point for intersections
+            // Only sample edges that cross from erased to unerased areas or vice versa
+            const nextErased = this.isPointErased(nextPoint, eraseMask);
+            
+            if (currentErased !== nextErased) {
+                // Edge crosses eraser boundary, find the intersection point
+                const edgePoint = this.findEraserEdge(
+                    currentErased ? nextPoint : currentPoint,
+                    currentErased ? currentPoint : nextPoint,
+                    eraseMask
+                );
                 
-                if (!isErased) {
-                    // Point survives
-                    if (lastUnerased === null || 
-                        Math.sqrt(Math.pow(samplePoint.x - lastUnerased.x, 2) + 
-                                 Math.pow(samplePoint.y - lastUnerased.y, 2)) > 1) {
-                        newPoints.push(samplePoint);
-                        lastUnerased = samplePoint;
+                if (edgePoint) {
+                    // Make sure the edge point is sufficiently far from existing points
+                    const lastPoint = survivingPoints[survivingPoints.length - 1];
+                    if (!lastPoint || 
+                        Math.sqrt(Math.pow(edgePoint.x - lastPoint.x, 2) + 
+                                 Math.pow(edgePoint.y - lastPoint.y, 2)) > 2) {
+                        survivingPoints.push(edgePoint);
                     }
-                } else if (lastUnerased !== null) {
-                    // Transition from unerased to erased - find edge of eraser
-                    const edgePoint = this.findEraserEdge(lastUnerased, samplePoint, eraseMask);
-                    if (edgePoint && 
-                        Math.sqrt(Math.pow(edgePoint.x - lastUnerased.x, 2) + 
-                                 Math.pow(edgePoint.y - lastUnerased.y, 2)) > 1) {
-                        newPoints.push(edgePoint);
-                    }
-                    lastUnerased = null;
                 }
             }
         }
         
-        // Remove consecutive duplicate points
+        // Remove consecutive duplicate points with more generous threshold
         const filteredPoints: { x: number, y: number }[] = [];
-        for (let i = 0; i < newPoints.length; i++) {
-            const point = newPoints[i];
+        for (let i = 0; i < survivingPoints.length; i++) {
+            const point = survivingPoints[i];
             const prevPoint = filteredPoints[filteredPoints.length - 1];
             
             if (!prevPoint || 
                 Math.sqrt(Math.pow(point.x - prevPoint.x, 2) + 
-                         Math.pow(point.y - prevPoint.y, 2)) > 0.5) {
+                         Math.pow(point.y - prevPoint.y, 2)) > 1.5) {
                 filteredPoints.push(point);
             }
         }

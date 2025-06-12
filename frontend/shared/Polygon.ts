@@ -165,99 +165,22 @@ export default class Polygon {
         const halfSize = this.resizeHandleSize / 2;
         this.resizeHandles = [];
         
-        // Get up to 8 well-distributed points around the polygon perimeter
-        const handlePoints = this.getPolygonHandlePoints();
-        
-        for (let i = 0; i < handlePoints.length; i++) {
-            const point = handlePoints[i];
+        // Place handles directly on polygon vertices for direct point manipulation
+        for (let i = 0; i < this.points.length; i++) {
+            const point = this.points[i];
             this.resizeHandles.push({
                 xmin: point.x - halfSize,
                 ymin: point.y - halfSize,
                 xmax: point.x + halfSize,
                 ymax: point.y + halfSize,
-                cursor: this.getResizeCursor(point, i),
+                cursor: "move", // Use move cursor for direct point manipulation
             });
         }
     }
 
-    private getPolygonHandlePoints(): Array<{x: number, y: number}> {
-        const points = this.points;
-        if (points.length <= 8) {
-            // If we have 8 or fewer vertices, place handles on each vertex
-            return [...points];
-        } else {
-            // For polygons with more than 8 vertices, sample 8 evenly distributed points
-            const handlePoints: Array<{x: number, y: number}> = [];
-            const perimeter = this.calculatePerimeter();
-            const segmentLength = perimeter / 8;
-            
-            let currentDistance = 0;
-            let currentPointIndex = 0;
-            
-            for (let handleIndex = 0; handleIndex < 8; handleIndex++) {
-                const targetDistance = handleIndex * segmentLength;
-                
-                // Find the segment containing the target distance
-                while (currentPointIndex < points.length - 1) {
-                    const p1 = points[currentPointIndex];
-                    const p2 = points[(currentPointIndex + 1) % points.length];
-                    const edgeLength = Math.sqrt(
-                        Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2)
-                    );
-                    
-                    if (currentDistance + edgeLength >= targetDistance) {
-                        // Interpolate along this edge
-                        const t = (targetDistance - currentDistance) / edgeLength;
-                        handlePoints.push({
-                            x: p1.x + t * (p2.x - p1.x),
-                            y: p1.y + t * (p2.y - p1.y)
-                        });
-                        break;
-                    }
-                    
-                    currentDistance += edgeLength;
-                    currentPointIndex++;
-                }
-            }
-            
-            return handlePoints.length > 0 ? handlePoints : [points[0]]; // Fallback
-        }
-    }
-
-    private calculatePerimeter(): number {
-        const points = this.points;
-        let perimeter = 0;
-        
-        for (let i = 0; i < points.length; i++) {
-            const p1 = points[i];
-            const p2 = points[(i + 1) % points.length];
-            perimeter += Math.sqrt(
-                Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2)
-            );
-        }
-        
-        return perimeter;
-    }
-
-    private getResizeCursor(point: {x: number, y: number}, index: number): string {
-        // Calculate the angle from the polygon center to this handle
-        const centerX = (this.xmin + this.xmax) / 2;
-        const centerY = (this.ymin + this.ymax) / 2;
-        
-        const angle = Math.atan2(point.y - centerY, point.x - centerX);
-        const degrees = (angle * 180 / Math.PI + 360) % 360;
-        
-        // Map angle to appropriate cursor
-        if ((degrees >= 337.5) || (degrees < 22.5)) return "ew-resize";      // Right
-        if (degrees >= 22.5 && degrees < 67.5) return "nwse-resize";         // Bottom-right
-        if (degrees >= 67.5 && degrees < 112.5) return "ns-resize";          // Bottom
-        if (degrees >= 112.5 && degrees < 157.5) return "nesw-resize";       // Bottom-left
-        if (degrees >= 157.5 && degrees < 202.5) return "ew-resize";         // Left
-        if (degrees >= 202.5 && degrees < 247.5) return "nwse-resize";       // Top-left
-        if (degrees >= 247.5 && degrees < 292.5) return "ns-resize";         // Top
-        if (degrees >= 292.5 && degrees < 337.5) return "nesw-resize";       // Top-right
-        
-        return "move"; // Fallback
+    private getPolygonVertexIndex(handleIndex: number): number {
+        // Direct mapping since handles correspond to vertices
+        return handleIndex;
     }
 
     getWidth(): number {
@@ -602,47 +525,36 @@ export default class Polygon {
         if (this.isResizing && this._points.length > 0) {
             const mouseX = event.clientX;
             const mouseY = event.clientY;
-            const deltaX = (mouseX - this.offsetMouseX - this.resizeHandles[this.resizingHandleIndex].xmin) / this.canvasWindow.scale;
-            const deltaY = (mouseY - this.offsetMouseY - this.resizeHandles[this.resizingHandleIndex].ymin) / this.canvasWindow.scale;
-
-            // Get current handle position
-            const currentHandle = this.resizeHandles[this.resizingHandleIndex];
-            const handleCenterX = (currentHandle.xmin + currentHandle.xmax) / 2;
-            const handleCenterY = (currentHandle.ymin + currentHandle.ymax) / 2;
             
-            // Calculate the direction from polygon center to the handle
-            const centerX = (this.xmin + this.xmax) / 2;
-            const centerY = (this.ymin + this.ymax) / 2;
-            
-            const handleDirX = handleCenterX - centerX;
-            const handleDirY = handleCenterY - centerY;
-            const handleDist = Math.sqrt(handleDirX * handleDirX + handleDirY * handleDirY);
-            
-            if (handleDist > 0) {
-                // Normalize direction vector
-                const normalizedDirX = handleDirX / handleDist;
-                const normalizedDirY = handleDirY / handleDist;
+            // Calculate the new position in image coordinates
+            const canvas = document.querySelector('canvas');
+            if (canvas) {
+                const rect = canvas.getBoundingClientRect();
+                const canvasX = mouseX - rect.left;
+                const canvasY = mouseY - rect.top;
                 
-                // Calculate movement in the direction of the handle
-                const moveDistance = deltaX * normalizedDirX + deltaY * normalizedDirY;
+                // Convert to image coordinates
+                const newX = (canvasX - this.canvasWindow.offsetX) / this.canvasWindow.scale;
+                const newY = (canvasY - this.canvasWindow.offsetY) / this.canvasWindow.scale;
                 
-                // Calculate scale factor based on the movement
-                const oldWidth = this._xmax - this._xmin;
-                const oldHeight = this._ymax - this._ymin;
-                const maxDimension = Math.max(oldWidth, oldHeight);
-                const scaleFactor = Math.max(0.1, 1 + moveDistance / maxDimension); // Minimum scale of 0.1
+                // Get the vertex index being moved
+                const vertexIndex = this.getPolygonVertexIndex(this.resizingHandleIndex);
                 
-                // Apply uniform scaling to all points from the center
-                const oldCenterX = (this._xmin + this._xmax) / 2;
-                const oldCenterY = (this._ymin + this._ymax) / 2;
-                
-                this._points = this._points.map(point => ({
-                    x: oldCenterX + (point.x - oldCenterX) * scaleFactor,
-                    y: oldCenterY + (point.y - oldCenterY) * scaleFactor
-                }));
-
-                this.updateBoundingBox();
-                this.renderCallBack();
+                if (vertexIndex >= 0 && vertexIndex < this._points.length) {
+                    // Constrain movement within canvas bounds
+                    const canvasW = (this.canvasXmax - this.canvasXmin) / this.canvasWindow.scale;
+                    const canvasH = (this.canvasYmax - this.canvasYmin) / this.canvasWindow.scale;
+                    
+                    const clampedX = Math.max(0, Math.min(newX, canvasW));
+                    const clampedY = Math.max(0, Math.min(newY, canvasH));
+                    
+                    // Update the specific vertex
+                    this._points[vertexIndex] = { x: clampedX, y: clampedY };
+                    
+                    // Update bounding box and handles
+                    this.updateBoundingBox();
+                    this.renderCallBack();
+                }
             }
         }
     };stopResize = (): void => {
