@@ -21,12 +21,18 @@ class AnnotatedImageData(GradioModel):
     image: FileData
     boxes: List[dict] = []
     orientation: int = 0
+    scrollable_mode: bool = False
+    auto_scroll: bool = True
+    preserve_resolution: bool = True
 
 
 class AnnotatedImageValue(TypedDict):
     image: Optional[np.ndarray | PIL.Image.Image | str]
     boxes: Optional[List[dict]]
     orientation: Optional[int]
+    scrollable_mode: Optional[bool]
+    auto_scroll: Optional[bool]
+    preserve_resolution: Optional[bool]
 
 
 def rgb2hex(r,g,b):
@@ -96,8 +102,13 @@ class image_annotator(Component):
         eraser_size: int = 10,
         enable_freehand: bool = True,
         enable_circle: bool = True,
-        enable_polygon: bool = True,        enable_eraser: bool = True,
+        enable_polygon: bool = True,
+        enable_eraser: bool = True,
         shape_creation_mode: Literal["drag", "box", "freehand", "circle", "polygon"] = "drag",
+        # New parameters for scrollable functionality
+        auto_scroll: bool = True,
+        scroll_threshold: float = 1.0,
+        preserve_resolution: bool = True,
     ):
         """
         Parameters:
@@ -137,6 +148,9 @@ class image_annotator(Component):
             enable_circle: If True, enables circle drawing mode.
             enable_polygon: If True, enables polygon drawing mode.            enable_eraser: If True, enables eraser mode for pixel-based shape erasing.
             shape_creation_mode: Default shape creation mode when the component is first loaded. Options: "drag" (default), "box", "freehand", "circle", "polygon".
+            auto_scroll: If True, automatically enables scrolling when image dimensions exceed component dimensions. Useful for high-resolution medical images.
+            scroll_threshold: Threshold multiplier for triggering auto-scroll. Image will scroll if its dimensions exceed (component_dimension * scroll_threshold).
+            preserve_resolution: If True, maintains original image resolution in scrollable mode instead of scaling down the image.
         """
 
         valid_types = ["numpy", "pil", "filepath"]
@@ -180,6 +194,12 @@ class image_annotator(Component):
         self.enable_polygon = enable_polygon
         self.enable_eraser = enable_eraser
         self.shape_creation_mode = shape_creation_mode
+
+        # Scrollable functionality
+        self.auto_scroll = auto_scroll
+        self.scroll_threshold = scroll_threshold
+        self.preserve_resolution = preserve_resolution
+        # Note: scrollable_mode is determined per-image, not per-component
 
         self.boxes_alpha = boxes_alpha
         self.box_min_size = box_min_size
@@ -314,6 +334,31 @@ class image_annotator(Component):
             
             parsed_boxes.append(new_box)
         return parsed_boxes
+    
+    def should_enable_scrolling(self, image_path: str) -> bool:
+        """
+        Determine if scrolling should be enabled based on image dimensions vs component dimensions.
+        """
+        if not self.auto_scroll:
+            return False
+            
+        try:
+            import PIL.Image
+            with PIL.Image.open(image_path) as img:
+                img_width, img_height = img.size
+                
+                # Get component dimensions (convert to pixels if needed)
+                comp_width = self.width if isinstance(self.width, int) else 1200  # default width
+                comp_height = self.height if isinstance(self.height, int) else 800  # default height
+                
+                # Check if image exceeds component dimensions by threshold
+                width_exceeds = img_width > (comp_width * self.scroll_threshold)
+                height_exceeds = img_height > (comp_height * self.scroll_threshold)
+                
+                return width_exceeds or height_exceeds
+        except Exception:
+            # If we can't determine image size, default to no scrolling
+            return False
 
     def preprocess(self, payload: AnnotatedImageData | None) -> AnnotatedImageValue | None:
         """
@@ -329,6 +374,9 @@ class image_annotator(Component):
             "image": self.preprocess_image(payload.image),
             "boxes": self.preprocess_boxes(payload.boxes),
             "orientation": payload.orientation,
+            "scrollable_mode": getattr(payload, 'scrollable_mode', False),
+            "auto_scroll": self.auto_scroll,
+            "preserve_resolution": self.preserve_resolution,
         }
         return ret_value
 
@@ -377,6 +425,7 @@ class image_annotator(Component):
 
         # Check and parse image
         image = value.setdefault("image", None)
+        scrollable_mode = False  # Initialize scrollable_mode for this specific image
         if image is not None:
             if isinstance(image, str) and image.lower().endswith(".svg"):
                 image = FileData(path=image, orig_name=Path(image).name)
@@ -384,6 +433,11 @@ class image_annotator(Component):
                 saved = image_utils.save_image(image, self.GRADIO_CACHE)
                 orig_name = Path(saved).name if Path(saved).exists() else None
                 image = FileData(path=saved, orig_name=orig_name)
+                
+                # Determine if scrolling should be enabled for this image
+                scrollable_mode = False
+                if Path(saved).exists():
+                    scrollable_mode = self.should_enable_scrolling(saved)
         else:
             raise ValueError(f"An image must be provided. Got {value}")
         
@@ -391,7 +445,14 @@ class image_annotator(Component):
         if orientation is None:
             orientation = 0
 
-        return AnnotatedImageData(image=image, boxes=boxes, orientation=orientation)
+        return AnnotatedImageData(
+            image=image, 
+            boxes=boxes, 
+            orientation=orientation,
+            scrollable_mode=scrollable_mode,
+            auto_scroll=self.auto_scroll,
+            preserve_resolution=self.preserve_resolution
+        )
 
     def process_example(self, value: dict | None) -> FileData | None:
         if value is None:

@@ -47,7 +47,7 @@ export default class Box {
         xmax: number;
         ymax: number;
         cursor: string;
-    }[];
+    }[] = [];
     canvasWindow: WindowViewer;
 
     constructor(

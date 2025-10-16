@@ -1,25 +1,19 @@
 <script lang="ts">
 	import { resolve_wasm_src } from "@gradio/wasm/svelte";
-	import type { HTMLImgAttributes } from "svelte/elements";
     import { createEventDispatcher } from "svelte";
 	import Canvas from "./Canvas.svelte"
 	import AnnotatedImageData from "./AnnotatedImageData";
 
-	interface Props extends HTMLImgAttributes {
-		"data-testid"?: string;
-	}
-
-	export let src: HTMLImgAttributes["src"] = undefined;
+	export let src: string | undefined = undefined;
 	export let interactive: boolean;
 	export let boxesAlpha: number;
 	export let labelList: string[];
 	export let labelColors: string[];
 	export let boxMinSize: number;
 	export let handleSize: number;
-	export let boxThickness: number;
 	export let height: number | string;
 	export let width: number | string;
-	export let boxSelectedThickness: number;
+	// legacy thickness props removed - handled inside Canvas
 	export let value: null | AnnotatedImageData;
 	export let disableEditBoxes: boolean;
 	export let singleBox: boolean;	export let showRemoveButton: boolean;
@@ -68,12 +62,14 @@
 	{width}
 	{boxMinSize}
 	{handleSize}
-	{boxThickness}
-	{boxSelectedThickness}
+
 	{disableEditBoxes}
-	{singleBox}	{showRemoveButton}
+	{singleBox}
+	{showRemoveButton}
 	{handlesCursor}
 	{useDefaultLabel}
 	{shapeCreationMode}
+	autoScroll={value?.auto_scroll || true}
+	preserveResolution={value?.preserve_resolution || true}
 	imageUrl={resolved_src}
 />

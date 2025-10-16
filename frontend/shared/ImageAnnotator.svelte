@@ -38,12 +38,17 @@
 	export let showRemoveButton: boolean;
 	export let handlesCursor: boolean;
 	export let boxSelectedThickness: number;
+
+	// Reference for external API (prevents Svelte unused export warnings)
+	const _boxThickness_ref = boxThickness;
+	const _boxSelectedThickness_ref = boxSelectedThickness;
 	export let max_file_size: number | null = null;
-	export let cli_upload: Client["upload"];	export let stream_handler: Client["stream_factory"];
+	export let cli_upload: any;
+	export let stream_handler: any;
 	export let useDefaultLabel: boolean;
 	export let shapeCreationMode: string;
 
-	let upload: Upload;
+	let upload: any;
 	let uploading = false;
 	export let active_source: source_type = null;
 
@@ -72,7 +77,7 @@
 		change: undefined;
 		clear: undefined;
 		drag: boolean;
-		upload?: never;
+		upload: undefined;
 		select: SelectData;
 	}>();
 
@@ -163,6 +168,7 @@
 		{#if value === null && active_source === "webcam"}
 			<Webcam
 				{root}
+						mirror_webcam={false}
 				on:capture={(e) => handle_save(e.detail)}
 				on:stream={(e) => handle_save(e.detail)}
 				on:error
@@ -187,11 +193,11 @@
 					{boxMinSize}
 					{interactive}
 					{handleSize}
-					{boxThickness}
+						
 					{singleBox}
 					{disableEditBoxes}
 					{showRemoveButton}				{handlesCursor}
-				{boxSelectedThickness}
+					
 				{useDefaultLabel}
 				{shapeCreationMode}
 				src={value.image.url}

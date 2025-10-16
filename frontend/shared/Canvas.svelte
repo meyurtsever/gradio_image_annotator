@@ -34,7 +34,7 @@
 	const MAX_PRECLEAR_STATES = 3; // Store only last 3 cleared states
 	const MAX_RECOVERY_COUNT = 3; // Allow up to 3 recoveries per clear state
 
-	let isInitialState = true; // Flag to track if we're in initial statelet isInitialState = true; // Flag to track if we're in initial state
+	let isInitialState = true; // Flag to track if we're in initial state
 	let showLabels = true; // Flag to control label visibility	// Reactive statement to ensure proper updates when showLabels changes
 	$: labelVisibility = showLabels;
 
@@ -52,7 +52,8 @@
 	    initialized = false;
 	}
 
-    export let imageUrl: string | null = null;	export let interactive: boolean;
+    export let imageUrl: string | null = null;
+	export let interactive: boolean;
 	export let boxMinSize = 10;
 	export let handleSize: number;
 	export let value: null | AnnotatedImageData;
@@ -61,9 +62,15 @@
 	export let disableEditBoxes: boolean = false;
 	export let height: number | string = "100%";
 	export let width: number | string = "100%";
-	export let singleBox: boolean = false;	export let showRemoveButton: boolean = null;
-	export let handlesCursor: boolean = true;	export let useDefaultLabel: boolean = false;
+	export let singleBox: boolean = false;
+	export let showRemoveButton: boolean = null;
+	export let handlesCursor: boolean = true;
+	export let useDefaultLabel: boolean = false;
 	export let shapeCreationMode: string = "drag";
+	
+	// Scrollable functionality properties
+	export let autoScroll: boolean = true;
+	export let preserveResolution: boolean = true;
 
 	if (showRemoveButton === null) {
 		showRemoveButton = (disableEditBoxes);
@@ -111,7 +118,12 @@
 	let scaleFactor = 1.0;
 
 	let imageWidth = 0;
-	let imageHeight = 0;	let editModalVisible = false;	let newModalVisible = false;
+	let imageHeight = 0;
+	let originalImageWidth = 0;  // Store original image dimensions
+	let originalImageHeight = 0;
+	let isScrollableMode = false; // Track if we're in scrollable mode
+	let editModalVisible = false;
+	let newModalVisible = false;
 	let editDefaultLabelVisible = false;
 	let eraserSettingsVisible = false;
 	let shapeSettingsVisible = false;
@@ -119,7 +131,9 @@
 	let eraserSize = 10; // Default eraser size
 	
 	// Shape settings
-	let shapeOpacity = 0.5;
+	export let boxAlpha: number = 0.5;
+	let shapeOpacity = boxAlpha;
+	$: shapeOpacity = boxAlpha;
 	let shapeStrokeWidth = 2;
 	let shapeSelectedStrokeWidth = 4;
 
@@ -227,11 +241,22 @@
 		} else if (mode === Mode.drag) {
 			clickBox(event);
 		}
-	}	function clickBox(event: PointerEvent) {
+	}	function getActualCoordinates(event: PointerEvent, canvasElement: HTMLCanvasElement) {
+		const rect = canvasElement.getBoundingClientRect();
+		let mouseX = event.clientX - rect.left;
+		let mouseY = event.clientY - rect.top;
+		
+		// In scrollable pan mode, coordinates are already relative to viewport
+		// No additional adjustment needed since pan is handled by canvasWindow offset
+		
+		return { mouseX, mouseY };
+	}
+
+	function clickBox(event: PointerEvent) {
 		console.log("clickBox function called, mode:", mode === Mode.drag ? "drag" : "creation");
-		const rect = canvas.getBoundingClientRect();
-		const mouseX = event.clientX - rect.left;
-		const mouseY = event.clientY - rect.top;
+		const coords = getActualCoordinates(event, canvas);
+		const mouseX = coords.mouseX;
+		const mouseY = coords.mouseY;
 		let selectedBoxFlag = false;
 		
 		if (value === null || !value.boxes) {
@@ -304,13 +329,25 @@
 			// Dispatch select event with coordinates when clicking on empty area in drag mode
 			if (mode === Mode.drag) {
 				console.log("Mode is drag, calculating coordinates");
-				const imageX = (mouseX - canvasWindow.offsetX) / scaleFactor / canvasWindow.scale;
-				const imageY = (mouseY - canvasWindow.offsetY) / scaleFactor / canvasWindow.scale;
+				let imageX, imageY;
 				
-				console.log("Click detected in drag mode:", { mouseX, mouseY, imageX, imageY, scaleFactor, "canvasWindow.scale": canvasWindow.scale, "canvasWindow.offsetX": canvasWindow.offsetX, "canvasWindow.offsetY": canvasWindow.offsetY });
+				if (isScrollableMode) {
+					// In scrollable mode, coordinates are direct since no scaling is applied
+					imageX = (mouseX - canvasWindow.offsetX) / canvasWindow.scale;
+					imageY = (mouseY - canvasWindow.offsetY) / canvasWindow.scale;
+				} else {
+					// Original coordinate calculation for non-scrollable mode
+					imageX = (mouseX - canvasWindow.offsetX) / scaleFactor / canvasWindow.scale;
+					imageY = (mouseY - canvasWindow.offsetY) / scaleFactor / canvasWindow.scale;
+				}
+				
+				console.log("Click detected in drag mode:", { mouseX, mouseY, imageX, imageY, scaleFactor, "canvasWindow.scale": canvasWindow.scale, "canvasWindow.offsetX": canvasWindow.offsetX, "canvasWindow.offsetY": canvasWindow.offsetY, isScrollableMode });
 				
 				// Check if click is within the image bounds (using original image dimensions)
-				if (image && imageX >= 0 && imageX <= image.naturalWidth && imageY >= 0 && imageY <= image.naturalHeight) {
+				const maxWidth = isScrollableMode ? originalImageWidth : (image?.naturalWidth || 0);
+				const maxHeight = isScrollableMode ? originalImageHeight : (image?.naturalHeight || 0);
+				
+				if (image && imageX >= 0 && imageX <= maxWidth && imageY >= 0 && imageY <= maxHeight) {
 					console.log("Dispatching select event with coordinates:", [Math.round(imageX), Math.round(imageY)]);
 					// NO UNDO TRACKING FOR SELECT EVENTS - this is just for coordinate reporting
 					dispatch("select", { coordinates: [Math.round(imageX), Math.round(imageY)] });
@@ -318,14 +355,19 @@
 					console.log("Click outside image bounds or no image loaded", { 
 						hasImage: !!image, 
 						imageX, imageY, 
-						naturalWidth: image?.naturalWidth, 
-						naturalHeight: image?.naturalHeight 
+						maxWidth, 
+						maxHeight,
+						isScrollableMode
 					});
 				}
 			} else {
 				console.log("Mode is not drag, mode:", mode);
 			}
-			canvasWindow.startDrag(event);
+			
+			// Only start canvas pan drag if we're in drag mode
+			if (mode === Mode.drag) {
+				canvasWindow.startDrag(event);
+			}
 		}
 	}
 	function handlePointerUp(event: PointerEvent) {
@@ -348,9 +390,9 @@
 			return;
 		}
 
-		const rect = canvas.getBoundingClientRect();
-		const mouseX = event.clientX - rect.left;
-		const mouseY = event.clientY - rect.top;
+		const coords = getActualCoordinates(event, canvas);
+		const mouseX = coords.mouseX;
+		const mouseY = coords.mouseY;
 
 		for (const [_, box] of value.boxes.entries()) {
 			const handleIndex = box.indexOfPointInsideHandle(mouseX, mouseY);
@@ -814,7 +856,8 @@
 						boxMinSize,
 						handleSize,
 						shapeStrokeWidth,
-						shapeSelectedStrokeWidth
+						shapeSelectedStrokeWidth,
+						scaleFactor  // Pass the current scaleFactor
 					);
 					freehand._points = [...data.points];
 					freehand.updateBoundingBox();
@@ -834,7 +877,8 @@
 						boxMinSize,
 						handleSize,
 						shapeStrokeWidth,
-						shapeSelectedStrokeWidth
+						shapeSelectedStrokeWidth,
+						scaleFactor  // Pass the current scaleFactor
 					);					polygon._points = [...data.points];
 					polygon.updateBoundingBox();
 					return polygon;
@@ -856,7 +900,8 @@
 						boxMinSize,
 						handleSize,
 						shapeStrokeWidth,
-						shapeSelectedStrokeWidth
+						shapeSelectedStrokeWidth,
+						scaleFactor  // Pass the current scaleFactor
 					);
 					
 				case 'box':					return new Box(
@@ -876,13 +921,15 @@
 						shapeOpacity,
 						boxMinSize,
 						handleSize,						shapeStrokeWidth,
-						shapeSelectedStrokeWidth
+						shapeSelectedStrokeWidth,
+						scaleFactor  // Pass the current scaleFactor
 					);
 			}
 		}
 		return null;
 	}
 	function createFreehandPath(event: PointerEvent) {
+		const coords = getActualCoordinates(event, canvas);
 		const rect = canvas.getBoundingClientRect();
 		let color;
 		if (choicesColors.length > 0) {
@@ -910,9 +957,17 @@
 			boxMinSize,
 			handleSize,
 			shapeStrokeWidth,
-			shapeSelectedStrokeWidth
+			shapeSelectedStrokeWidth,
+			scaleFactor  // Pass the current scaleFactor (1 in scrollable mode, calculated value in normal mode)
 		);
-		freehandPath.startCreating(event, rect.left, rect.top);
+		
+		if (isScrollableMode) {
+			// In pan-based scrollable mode, use actual coordinates without rect offsets
+			freehandPath.startCreating(event, 0, 0);
+		} else {
+			// Original coordinate calculation for non-scrollable mode
+			freehandPath.startCreating(event, rect.left, rect.top);
+		}
 		if (singleBox) {
 			value.boxes = [freehandPath];
 		} else {
@@ -951,6 +1006,7 @@
 			}
 		}
 	}function createPolygon(event: PointerEvent) {
+		const coords = getActualCoordinates(event, canvas);
 		const rect = canvas.getBoundingClientRect();
 		let color;
 		if (choicesColors.length > 0) {
@@ -978,7 +1034,8 @@
 			boxMinSize,
 			handleSize,
 			shapeStrokeWidth,
-			shapeSelectedStrokeWidth
+			shapeSelectedStrokeWidth,
+			scaleFactor  // Pass the current scaleFactor (1 in scrollable mode, calculated value in normal mode)
 		);
 		
 		// Set up point addition callback for undo/redo
@@ -991,7 +1048,13 @@
 		
 		currentPolygon = polygon; // Set the current polygon being created
 		
-		polygon.startCreating(event, rect.left, rect.top);
+		if (isScrollableMode) {
+			// In pan-based scrollable mode, use actual coordinates without rect offsets
+			polygon.startCreating(event, 0, 0);
+		} else {
+			// Original coordinate calculation for non-scrollable mode
+			polygon.startCreating(event, rect.left, rect.top);
+		}
 		if (singleBox) {
 			value.boxes = [polygon];
 		} else {
@@ -1009,9 +1072,21 @@
 		dispatch("change");
 	}
 	function createBox(event: PointerEvent) {
+		const coords = getActualCoordinates(event, canvas);
 		const rect = canvas.getBoundingClientRect();
-		const x = (event.clientX - rect.left - canvasWindow.offsetX) / scaleFactor / canvasWindow.scale;
-		const y = (event.clientY - rect.top - canvasWindow.offsetY) / scaleFactor / canvasWindow.scale;
+		let x, y;
+		
+		if (isScrollableMode) {
+			// In pan-based scrollable mode, convert screen coordinates to image coordinates
+			// Account for the current pan position
+			x = (coords.mouseX - canvasWindow.offsetX) / canvasWindow.scale;
+			y = (coords.mouseY - canvasWindow.offsetY) / canvasWindow.scale;
+		} else {
+			// Original coordinate calculation for non-scrollable mode
+			x = (coords.mouseX - canvasWindow.offsetX) / scaleFactor / canvasWindow.scale;
+			y = (coords.mouseY - canvasWindow.offsetY) / scaleFactor / canvasWindow.scale;
+		}
+		
 		let color;
 		if (choicesColors.length > 0) {
 			color = colorHexToRGB(choicesColors[0]);
@@ -1042,9 +1117,15 @@
 			boxMinSize,
 			handleSize,
 			shapeStrokeWidth,
-			shapeSelectedStrokeWidth
+			shapeSelectedStrokeWidth,
+			scaleFactor  // Pass the current scaleFactor (1 in scrollable mode, calculated value in normal mode)
 		);
-		box.startCreating(event, rect.left, rect.top);
+		// For pan-based scrollable mode, we need to pass the correct canvas coordinates
+		if (isScrollableMode) {
+			box.startCreating(event, coords.mouseX, coords.mouseY);
+		} else {
+			box.startCreating(event, rect.left, rect.top);
+		}
 		if (singleBox) {
 			value.boxes = [box];
 		} else {
@@ -1061,9 +1142,20 @@
 		dispatch("change");
 	}
 	function createCircle(event: PointerEvent) {
+		const coords = getActualCoordinates(event, canvas);
 		const rect = canvas.getBoundingClientRect();
-		const x = (event.clientX - rect.left - canvasWindow.offsetX) / canvasWindow.scale;
-		const y = (event.clientY - rect.top - canvasWindow.offsetY) / canvasWindow.scale;
+		let x, y;
+		
+		if (isScrollableMode) {
+			// In scrollable mode, coordinates are direct since no scaling is applied
+			x = (coords.mouseX - canvasWindow.offsetX) / canvasWindow.scale;
+			y = (coords.mouseY - canvasWindow.offsetY) / canvasWindow.scale;
+		} else {
+			// Original coordinate calculation for non-scrollable mode
+			x = (coords.mouseX - canvasWindow.offsetX) / canvasWindow.scale;
+			y = (coords.mouseY - canvasWindow.offsetY) / canvasWindow.scale;
+		}
+		
 		let color;
 		if (choicesColors.length > 0) {
 			color = colorHexToRGB(choicesColors[0]);
@@ -1093,7 +1185,9 @@
 			boxMinSize,
 			handleSize,
 			shapeStrokeWidth,
-			shapeSelectedStrokeWidth);
+			shapeSelectedStrokeWidth,
+			scaleFactor  // Pass the current scaleFactor (1 in scrollable mode, calculated value in normal mode)
+		);
 		circle.startCreating(event);
 		if (singleBox) {
 			value.boxes = [circle];
@@ -1323,9 +1417,9 @@
 		}
 		
 		// Check if we clicked on a shape for editing
-		const rect = canvas.getBoundingClientRect();
-		const mouseX = event.clientX - rect.left;
-		const mouseY = event.clientY - rect.top;
+		const coords = getActualCoordinates(event as any, canvas);
+		const mouseX = coords.mouseX;
+		const mouseY = coords.mouseY;
 		let clickedOnShape = false;
 		
 		// Check if click is on any shape
@@ -1556,24 +1650,73 @@
 			canvasWindow.setRotatedImage(image);
 			
 			if (image !== null) {
-				if (canvasWindow.imageRotatedWidth > canvas.width) {
-					scaleFactor = canvas.width / canvasWindow.imageRotatedWidth;
-					imageWidth = Math.round(canvasWindow.imageRotatedWidth * scaleFactor);
-					imageHeight = Math.round(canvasWindow.imageRotatedHeight * scaleFactor);
-					canvasXmin = 0;
-					canvasYmin = 0;
-					canvasXmax = imageWidth;
-					canvasYmax = imageHeight;
-					canvas.height = imageHeight;
-				} else {
+				// Store original image dimensions
+				originalImageWidth = canvasWindow.imageRotatedWidth;
+				originalImageHeight = canvasWindow.imageRotatedHeight;
+				
+				// Check if we should use scrollable mode
+				const shouldScroll = value?.scrollable_mode || (
+					autoScroll && preserveResolution && (
+						canvasWindow.imageRotatedWidth > canvas.clientWidth ||
+						canvasWindow.imageRotatedHeight > (typeof height === 'number' ? height : 800)
+					)
+				);
+				
+				isScrollableMode = shouldScroll;
+				
+				if (isScrollableMode && preserveResolution) {
+					// Scrollable mode: maintain original image resolution within fixed container
 					imageWidth = canvasWindow.imageRotatedWidth;
 					imageHeight = canvasWindow.imageRotatedHeight;
-					var x = (canvas.width - imageWidth) / 2;
-					canvasXmin = x;
+					
+					// Keep container height fixed - don't expand canvas
+					const containerHeight = typeof height === 'number' ? height : 800;
+					canvas.height = containerHeight;
+					
+					// Set canvas bounds to container dimensions for clipping
+					canvasXmin = 0;
 					canvasYmin = 0;
-					canvasXmax = x + imageWidth;
-					canvasYmax = imageHeight;
-					canvas.height = imageHeight;
+					canvasXmax = canvas.width;
+					canvasYmax = canvas.height;
+					
+					// No scaling in scrollable mode - full resolution
+					scaleFactor = 1;
+					
+					// Only initialize pan offset if not already set (preserve current pan position)
+					if (canvasWindow.offsetX === undefined || canvasWindow.offsetY === undefined) {
+						// Initialize pan offset to center the image
+						canvasWindow.offsetX = (canvas.width - imageWidth) / 2;
+						canvasWindow.offsetY = (canvas.height - imageHeight) / 2;
+						
+						// Ensure we don't start with image positioned outside viewport
+						if (imageWidth > canvas.width) {
+							canvasWindow.offsetX = 0;
+						}
+						if (imageHeight > canvas.height) {
+							canvasWindow.offsetY = 0;
+						}
+					}
+				} else {
+					// Original scaling behavior for non-scrollable mode
+					if (canvasWindow.imageRotatedWidth > canvas.width) {
+						scaleFactor = canvas.width / canvasWindow.imageRotatedWidth;
+						imageWidth = Math.round(canvasWindow.imageRotatedWidth * scaleFactor);
+						imageHeight = Math.round(canvasWindow.imageRotatedHeight * scaleFactor);
+						canvasXmin = 0;
+						canvasYmin = 0;
+						canvasXmax = imageWidth;
+						canvasYmax = imageHeight;
+						canvas.height = imageHeight;
+					} else {
+						imageWidth = canvasWindow.imageRotatedWidth;
+						imageHeight = canvasWindow.imageRotatedHeight;
+						var x = (canvas.width - imageWidth) / 2;
+						canvasXmin = x;
+						canvasYmin = 0;
+						canvasXmax = x + imageWidth;
+						canvasYmax = imageHeight;
+						canvas.height = imageHeight;
+					}
 				}
 
 				canvasWindow.imageWidth = imageWidth;
@@ -1585,6 +1728,7 @@
 				canvasXmax = canvas.width;
 				canvasYmax = canvas.height;
 				canvas.height = canvas.clientHeight;
+				isScrollableMode = false;
 			}
 			
 			canvasWindow.resize(canvas.width, canvas.height, canvasXmin, canvasYmin);
@@ -1600,7 +1744,8 @@
 			}
 			draw();
 			dispatch("change");
-		}	}
+		}
+	}
 	const observer = new ResizeObserver(resize);
 		function parseInputBoxes() {
 		if (value === null || !value.boxes) {
@@ -1638,7 +1783,8 @@
 						boxMinSize,
 						handleSize,
 						shapeStrokeWidth,
-						shapeSelectedStrokeWidth
+						shapeSelectedStrokeWidth,
+						scaleFactor  // Pass the current scaleFactor
 					);
 					freehandPath._points = box["points"];
 					freehandPath.updateBoundingBox();
@@ -1661,7 +1807,8 @@
 						boxMinSize,
 						handleSize,
 						shapeStrokeWidth,
-						shapeSelectedStrokeWidth
+						shapeSelectedStrokeWidth,
+						scaleFactor  // Pass the current scaleFactor
 					);
 					box = circle;				} else if (box.hasOwnProperty("type") && box["type"] === "polygon" && box.hasOwnProperty("points")) {
 					// Handle polygon shapes
@@ -1679,7 +1826,8 @@
 						boxMinSize,
 						handleSize,
 						shapeStrokeWidth,
-						shapeSelectedStrokeWidth
+						shapeSelectedStrokeWidth,
+						scaleFactor  // Pass the current scaleFactor
 					);
 					polygon._points = box["points"];
 					polygon.updateBoundingBox();
@@ -1783,10 +1931,13 @@
 
 <div
 	class="canvas-container"
+	class:scrollable={isScrollableMode}
 	tabindex="-1"
 	on:focusin={handleCanvasFocus}
 	on:focusout={handleCanvasBlur}
->	<canvas
+	style="height: {height}; width: {width};"
+>
+	<canvas
 		bind:this={canvas}
 		tabindex="0"
 		on:pointerdown={handlePointerDown}
@@ -1794,8 +1945,8 @@
 		on:pointermove={handlesCursor ? handlePointerMove : null}
 		on:dblclick={handleDoubleClick}
 		on:wheel={handleMouseWheel}
-		style="height: {height}; width: {width};"
 		class="canvas-annotator"
+		class:scrollable-canvas={isScrollableMode}
 	></canvas>
 </div>
 
@@ -2144,5 +2295,18 @@
 
 	.canvas-container:focus {
     	outline: none;
+	}
+	
+	/* Scrollable pan mode styles */
+	.canvas-container.scrollable {
+		justify-content: center;
+		align-items: center;
+		/* No overflow scrollbars - using pan navigation instead */
+		overflow: hidden;
+	}
+	
+	.canvas-annotator.scrollable-canvas {
+		max-width: none !important;
+		max-height: none !important;
 	}
 </style>
