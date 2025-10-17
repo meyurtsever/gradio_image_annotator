@@ -49,11 +49,13 @@ export default class Box {
         cursor: string;
     }[] = [];
     canvasWindow: WindowViewer;
+    canvas: HTMLCanvasElement;
 
     constructor(
         renderCallBack: () => void,
         onFinishCreation: () => void,
         canvasWindow: WindowViewer,
+        canvas: HTMLCanvasElement,
         canvasXmin: number,
         canvasYmin: number,
         canvasXmax: number,
@@ -74,6 +76,7 @@ export default class Box {
         this.renderCallBack = renderCallBack;
         this.onFinishCreation = onFinishCreation;
         this.canvasWindow = canvasWindow;
+        this.canvas = canvas;
         this.canvasXmin = canvasXmin;
         this.canvasYmin = canvasYmin;
         this.canvasXmax = canvasXmax;
@@ -247,10 +250,35 @@ export default class Box {
         let xmin: number, ymin: number;
 
         this.updateOffset()
+        
         // Render the box and border
         ctx.beginPath();
-        [xmin, ymin] = this.toCanvasCoordinates(this.xmin, this.ymin);
-        ctx.rect(xmin, ymin, this.getWidth(), this.getHeight());
+        
+        // During creation, calculate proper bounding box for visual display
+        let width, height;
+        if (this.isCreating) {
+            // Calculate actual bounding box in image coordinates first
+            const imgXmin = Math.min(this._xmin, this._xmax);
+            const imgYmin = Math.min(this._ymin, this._ymax);
+            const imgXmax = Math.max(this._xmin, this._xmax);
+            const imgYmax = Math.max(this._ymin, this._ymax);
+            
+            // Scale and add canvas offset to get final canvas coordinates
+            const scaledXmin = imgXmin * this.canvasWindow.scale;
+            const scaledYmin = imgYmin * this.canvasWindow.scale;
+            xmin = scaledXmin + this.canvasXmin;
+            ymin = scaledYmin + this.canvasYmin;
+            width = (imgXmax - imgXmin) * this.canvasWindow.scale;
+            height = (imgYmax - imgYmin) * this.canvasWindow.scale;
+        } else {
+            // Use the standard coordinates for completed boxes
+            [xmin, ymin] = this.toCanvasCoordinates(this.xmin, this.ymin);
+            width = this.getWidth();
+            height = this.getHeight();
+        }
+        
+        // Debug logging for coordinate system
+        ctx.rect(xmin, ymin, width, height);
         ctx.fillStyle = setAlpha(this.color, this.alpha);
         ctx.fill();
         if (this.isSelected) {
@@ -368,19 +396,35 @@ export default class Box {
         return -1;
     }
 
-    startCreating(event: MouseEvent, canvasX: number, canvasY: number): void {
+    // startCreating now accepts initial image-space coordinates (imgX, imgY)
+    startCreating(event: MouseEvent, imgX: number, imgY: number): void {
         this.isCreating = true;
-        this.offsetMouseX = canvasX;
-        this.offsetMouseY = canvasY;
+        
+        // Use the provided image coordinates directly - no recalculation needed
+        this._xmin = imgX;
+        this._ymin = imgY;
+        this._xmax = imgX;
+        this._ymax = imgY;
+
+        // Initialize anchors
+        this.creatingAnchorX = "xmin";
+        this.creatingAnchorY = "ymin";
+
         document.addEventListener("pointermove", this.handleCreating);
         document.addEventListener("pointerup", this.stopCreating);
     }
 
     handleCreating = (event: MouseEvent): void => {
         if (this.isCreating) {
-            let [x, y] = this.toBoxCoordinates(event.clientX, event.clientY);
-            x = (x - this.offsetMouseX) / this.canvasWindow.scale;
-            y = (y - this.offsetMouseY) / this.canvasWindow.scale;
+            if (!this.canvas) return;
+            
+            const rect = this.canvas.getBoundingClientRect();
+            const canvasX = event.clientX - rect.left;
+            const canvasY = event.clientY - rect.top;
+
+            // Convert from canvas coordinates to image coordinates - same as Canvas.svelte
+            let x = (canvasX - this.canvasWindow.offsetX) / this.canvasWindow.scale;
+            let y = (canvasY - this.canvasWindow.offsetY) / this.canvasWindow.scale;
 
             if (x > this._xmax) {
                 if (this.creatingAnchorX == "xmax") {

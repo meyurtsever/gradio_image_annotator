@@ -41,6 +41,7 @@ export default class FreehandPath {
         cursor: string;
     }[];
     canvasWindow: WindowViewer;
+    canvas: HTMLCanvasElement;
     // Bounding box properties for compatibility
     xmin: number;
     ymin: number;
@@ -58,6 +59,7 @@ export default class FreehandPath {
         renderCallBack: () => void,
         onFinishCreation: () => void,
         canvasWindow: WindowViewer,
+        canvas: HTMLCanvasElement,
         canvasXmin: number,
         canvasYmin: number,
         canvasXmax: number,
@@ -74,6 +76,7 @@ export default class FreehandPath {
         this.renderCallBack = renderCallBack;
         this.onFinishCreation = onFinishCreation;
         this.canvasWindow = canvasWindow;
+        this.canvas = canvas;
         this.canvasXmin = canvasXmin;
         this.canvasYmin = canvasYmin;
         this.canvasXmax = canvasXmax;
@@ -389,38 +392,36 @@ export default class FreehandPath {
             }
         }
         return -1;
-    }    startCreating(event: MouseEvent, canvasX: number, canvasY: number): void {
+    }    startCreating(event: MouseEvent, imageX: number, imageY: number): void {
         this.isCreating = true;
-        const canvas = document.querySelector('canvas');
-        if (canvas) {
-            const rect = canvas.getBoundingClientRect();
-            const x = (event.clientX - rect.left - this.canvasWindow.offsetX) / this.canvasWindow.scale;
-            const y = (event.clientY - rect.top - this.canvasWindow.offsetY) / this.canvasWindow.scale;
-            
-            this._points = [{x, y}];
-            this.applyUserScale();
-            this.updateBoundingBox();
-        }
+        
+        // Use the provided image coordinates directly - no recalculation needed
+        this._points = [{x: imageX, y: imageY}];
+        this.applyUserScale();
+        this.updateBoundingBox();
         
         document.addEventListener("pointermove", this.handleCreating);
         document.addEventListener("pointerup", this.stopCreating);
     }    handleCreating = (event: MouseEvent): void => {
         if (this.isCreating) {
-            const canvas = document.querySelector('canvas');
-            if (canvas) {
-                const rect = canvas.getBoundingClientRect();
-                const x = (event.clientX - rect.left - this.canvasWindow.offsetX) / this.canvasWindow.scale;
-                const y = (event.clientY - rect.top - this.canvasWindow.offsetY) / this.canvasWindow.scale;
-                
-                // Add point if it's far enough from the last point (smooth drawing)
-                const lastPoint = this._points[this._points.length - 1];
-                const distance = Math.sqrt(Math.pow(x - lastPoint.x, 2) + Math.pow(y - lastPoint.y, 2));
-                if (distance > 2) { // Minimum distance between points
-                    this._points.push({x, y});
-                    this.applyUserScale();
-                    this.updateBoundingBox();
-                    this.renderCallBack();
-                }
+            if (!this.canvas) return;
+            
+            const rect = this.canvas.getBoundingClientRect();
+            const canvasCoordX = event.clientX - rect.left;
+            const canvasCoordY = event.clientY - rect.top;
+            
+            // Convert from canvas coordinates to image coordinates - same as Canvas.svelte
+            const x = (canvasCoordX - this.canvasWindow.offsetX) / this.canvasWindow.scale;
+            const y = (canvasCoordY - this.canvasWindow.offsetY) / this.canvasWindow.scale;
+            
+            // Add point if it's far enough from the last point (smooth drawing)
+            const lastPoint = this._points[this._points.length - 1];
+            const distance = Math.sqrt(Math.pow(x - lastPoint.x, 2) + Math.pow(y - lastPoint.y, 2));
+            if (distance > 2) { // Minimum distance between points
+                this._points.push({x, y});
+                this.applyUserScale();
+                this.updateBoundingBox();
+                this.renderCallBack();
             }
         }
     };
@@ -443,14 +444,6 @@ export default class FreehandPath {
             this.renderCallBack();
             
             // Print coordinates of the hand-drawn path
-            console.log("Freehand path coordinates:", this._points);
-            console.log("Number of points:", this._points.length);
-            console.log("Bounding box:", {
-                xmin: this._xmin,
-                ymin: this._ymin,
-                xmax: this._xmax,
-                ymax: this._ymax
-            });
         }
         this.onFinishCreation();
     };    startResize(handleIndex: number, event: MouseEvent): void {

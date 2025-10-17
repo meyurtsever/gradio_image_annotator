@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy, createEventDispatcher } from "svelte";	import { BoundingBox, Hand, Trash, Label, Freehand, Circle, Polygon, Erase, UndoIcon, RedoIcon, DropdownArrow, Bulb, ClearShapes } from "./icons/index";
+	import { onMount, onDestroy, createEventDispatcher } from "svelte";	import { BoundingBox, Hand, Trash, Label, Freehand, Circle, Polygon, Erase, UndoIcon, RedoIcon, DropdownArrow, Bulb, ClearShapes, Export } from "./icons/index";
 	import ModalBox from "./ModalBox.svelte";
 	import EraserSettingsModal from "./EraserSettingsModal.svelte";
 	import ShapeSettingsModal from "./ShapeSettingsModal.svelte";
@@ -246,14 +246,29 @@
 		let mouseX = event.clientX - rect.left;
 		let mouseY = event.clientY - rect.top;
 		
-		// In scrollable pan mode, coordinates are already relative to viewport
-		// No additional adjustment needed since pan is handled by canvasWindow offset
-		
 		return { mouseX, mouseY };
 	}
 
+	// Convert canvas coordinates to image coordinates
+	function canvasToImageCoordinates(canvasX: number, canvasY: number): { imageX: number, imageY: number } {
+		let imageX, imageY;
+		
+		if (isScrollableMode) {
+			// In scrollable mode: convert canvas mouse position to image coordinates
+			// We need to account for the current pan/zoom to get the actual image pixel
+			imageX = (canvasX - canvasWindow.offsetX) / canvasWindow.scale;
+			imageY = (canvasY - canvasWindow.offsetY) / canvasWindow.scale;
+		} else {
+			// In non-scrollable mode: image is scaled to fit canvas
+			// scaleFactor represents how much the image was shrunk to fit
+			imageX = (canvasX - canvasWindow.offsetX) / scaleFactor / canvasWindow.scale;
+			imageY = (canvasY - canvasWindow.offsetY) / scaleFactor / canvasWindow.scale;
+		}
+		
+		return { imageX, imageY };
+	}
+
 	function clickBox(event: PointerEvent) {
-		console.log("clickBox function called, mode:", mode === Mode.drag ? "drag" : "creation");
 		const coords = getActualCoordinates(event, canvas);
 		const mouseX = coords.mouseX;
 		const mouseY = coords.mouseY;
@@ -273,12 +288,10 @@
 				let resizeStartState: any = null;
 				box.onMoveStart = () => {
 					resizeStartState = cloneShapeData(box);
-					console.log("Resize started, captured state:", resizeStartState);
 				};
 				box.onMoveEnd = () => {
 					if (resizeStartState) {
 						const finalState = cloneShapeData(box);
-						console.log("Resize ended, final state:", finalState);
 						addUndoAction({
 							type: 'edit_shape',
 							shapeIndex: i,
@@ -324,44 +337,21 @@
 				selectBox(-1);
 			}
 			
-			// IMPORTANT: Select events are NEVER tracked in undo/redo - this is just coordinate dispatch
-			console.log("No box selected, checking if we should dispatch select event");
 			// Dispatch select event with coordinates when clicking on empty area in drag mode
 			if (mode === Mode.drag) {
-				console.log("Mode is drag, calculating coordinates");
-				let imageX, imageY;
-				
-				if (isScrollableMode) {
-					// In scrollable mode, coordinates are direct since no scaling is applied
-					imageX = (mouseX - canvasWindow.offsetX) / canvasWindow.scale;
-					imageY = (mouseY - canvasWindow.offsetY) / canvasWindow.scale;
-				} else {
-					// Original coordinate calculation for non-scrollable mode
-					imageX = (mouseX - canvasWindow.offsetX) / scaleFactor / canvasWindow.scale;
-					imageY = (mouseY - canvasWindow.offsetY) / scaleFactor / canvasWindow.scale;
-				}
-				
-				console.log("Click detected in drag mode:", { mouseX, mouseY, imageX, imageY, scaleFactor, "canvasWindow.scale": canvasWindow.scale, "canvasWindow.offsetX": canvasWindow.offsetX, "canvasWindow.offsetY": canvasWindow.offsetY, isScrollableMode });
+				const imageCoords = canvasToImageCoordinates(mouseX, mouseY);
+				let imageX = imageCoords.imageX;
+				let imageY = imageCoords.imageY;
 				
 				// Check if click is within the image bounds (using original image dimensions)
 				const maxWidth = isScrollableMode ? originalImageWidth : (image?.naturalWidth || 0);
 				const maxHeight = isScrollableMode ? originalImageHeight : (image?.naturalHeight || 0);
 				
 				if (image && imageX >= 0 && imageX <= maxWidth && imageY >= 0 && imageY <= maxHeight) {
-					console.log("Dispatching select event with coordinates:", [Math.round(imageX), Math.round(imageY)]);
 					// NO UNDO TRACKING FOR SELECT EVENTS - this is just for coordinate reporting
 					dispatch("select", { coordinates: [Math.round(imageX), Math.round(imageY)] });
-				} else {
-					console.log("Click outside image bounds or no image loaded", { 
-						hasImage: !!image, 
-						imageX, imageY, 
-						maxWidth, 
-						maxHeight,
-						isScrollableMode
-					});
 				}
 			} else {
-				console.log("Mode is not drag, mode:", mode);
 			}
 			
 			// Only start canvas pan drag if we're in drag mode
@@ -818,13 +808,17 @@
 				existingShape._xmax = data.xmax;
 				existingShape._ymax = data.ymax;
 				// Apply scaling to get the scaled coordinates
-				existingShape.applyUserScale();
+				if (typeof (existingShape as any).applyUserScale === "function") {
+					(existingShape as any).applyUserScale();
+				}
 			} else if (existingShape instanceof CircleShape) {
 				// For Circle objects, update the center and radius
 				existingShape._centerX = data.centerX;
 				existingShape._centerY = data.centerY;
 				existingShape._radius = data.radius;
-				existingShape.applyUserScale();
+				if (typeof (existingShape as any).applyUserScale === "function") {
+					(existingShape as any).applyUserScale();
+				}
 			} else {
 				// For other shapes, update the regular coordinates
 				existingShape.xmin = data.xmin;
@@ -846,6 +840,7 @@
 						draw,
 						onBoxFinishCreation,
 						canvasWindow,
+						canvas,
 						canvasXmin,
 						canvasYmin,
 						canvasXmax,
@@ -867,6 +862,7 @@
 						draw,
 						onBoxFinishCreation,
 						canvasWindow,
+						canvas,
 						canvasXmin,
 						canvasYmin,
 						canvasXmax,
@@ -887,6 +883,7 @@
 						draw,
 						onBoxFinishCreation,
 						canvasWindow,
+						canvas,
 						canvasXmin,
 						canvasYmin,
 						canvasXmax,
@@ -908,6 +905,7 @@
 						draw,
 						onBoxFinishCreation,
 						canvasWindow,
+						canvas,
 						canvasXmin,
 						canvasYmin,
 						canvasXmax,
@@ -930,7 +928,9 @@
 	}
 	function createFreehandPath(event: PointerEvent) {
 		const coords = getActualCoordinates(event, canvas);
+		const imageCoords = canvasToImageCoordinates(coords.mouseX, coords.mouseY);
 		const rect = canvas.getBoundingClientRect();
+		
 		let color;
 		if (choicesColors.length > 0) {
 			color = colorHexToRGB(choicesColors[0]);
@@ -947,6 +947,7 @@
 			draw,
 			onBoxFinishCreation,
 			canvasWindow,
+			canvas,
 			canvasXmin,
 			canvasYmin,
 			canvasXmax,
@@ -961,13 +962,8 @@
 			scaleFactor  // Pass the current scaleFactor (1 in scrollable mode, calculated value in normal mode)
 		);
 		
-		if (isScrollableMode) {
-			// In pan-based scrollable mode, use actual coordinates without rect offsets
-			freehandPath.startCreating(event, 0, 0);
-		} else {
-			// Original coordinate calculation for non-scrollable mode
-			freehandPath.startCreating(event, rect.left, rect.top);
-		}
+		// Provide initial image-space coordinates to FreehandPath.startCreating
+		freehandPath.startCreating(event, imageCoords.imageX, imageCoords.imageY);
 		if (singleBox) {
 			value.boxes = [freehandPath];
 		} else {
@@ -1007,7 +1003,9 @@
 		}
 	}function createPolygon(event: PointerEvent) {
 		const coords = getActualCoordinates(event, canvas);
+		const imageCoords = canvasToImageCoordinates(coords.mouseX, coords.mouseY);
 		const rect = canvas.getBoundingClientRect();
+		
 		let color;
 		if (choicesColors.length > 0) {
 			color = colorHexToRGB(choicesColors[0]);
@@ -1024,6 +1022,7 @@
 			draw,
 			onPolygonFinishCreation,
 			canvasWindow,
+			canvas,
 			canvasXmin,
 			canvasYmin,
 			canvasXmax,
@@ -1048,13 +1047,8 @@
 		
 		currentPolygon = polygon; // Set the current polygon being created
 		
-		if (isScrollableMode) {
-			// In pan-based scrollable mode, use actual coordinates without rect offsets
-			polygon.startCreating(event, 0, 0);
-		} else {
-			// Original coordinate calculation for non-scrollable mode
-			polygon.startCreating(event, rect.left, rect.top);
-		}
+		// Provide initial image-space coordinates to Polygon.startCreating
+		polygon.startCreating(event, imageCoords.imageX, imageCoords.imageY);
 		if (singleBox) {
 			value.boxes = [polygon];
 		} else {
@@ -1073,19 +1067,9 @@
 	}
 	function createBox(event: PointerEvent) {
 		const coords = getActualCoordinates(event, canvas);
-		const rect = canvas.getBoundingClientRect();
-		let x, y;
-		
-		if (isScrollableMode) {
-			// In pan-based scrollable mode, convert screen coordinates to image coordinates
-			// Account for the current pan position
-			x = (coords.mouseX - canvasWindow.offsetX) / canvasWindow.scale;
-			y = (coords.mouseY - canvasWindow.offsetY) / canvasWindow.scale;
-		} else {
-			// Original coordinate calculation for non-scrollable mode
-			x = (coords.mouseX - canvasWindow.offsetX) / scaleFactor / canvasWindow.scale;
-			y = (coords.mouseY - canvasWindow.offsetY) / scaleFactor / canvasWindow.scale;
-		}
+		const imageCoords = canvasToImageCoordinates(coords.mouseX, coords.mouseY);
+		let x = imageCoords.imageX;
+		let y = imageCoords.imageY;
 		
 		let color;
 		if (choicesColors.length > 0) {
@@ -1103,6 +1087,7 @@
 			draw,
 			onBoxFinishCreation,
 			canvasWindow,
+			canvas,
 			canvasXmin,
 			canvasYmin,
 			canvasXmax,
@@ -1120,12 +1105,8 @@
 			shapeSelectedStrokeWidth,
 			scaleFactor  // Pass the current scaleFactor (1 in scrollable mode, calculated value in normal mode)
 		);
-		// For pan-based scrollable mode, we need to pass the correct canvas coordinates
-		if (isScrollableMode) {
-			box.startCreating(event, coords.mouseX, coords.mouseY);
-		} else {
-			box.startCreating(event, rect.left, rect.top);
-		}
+	// Provide initial image-space coordinates to Box.startCreating (x,y)
+	box.startCreating(event, x, y);
 		if (singleBox) {
 			value.boxes = [box];
 		} else {
@@ -1143,18 +1124,9 @@
 	}
 	function createCircle(event: PointerEvent) {
 		const coords = getActualCoordinates(event, canvas);
-		const rect = canvas.getBoundingClientRect();
-		let x, y;
-		
-		if (isScrollableMode) {
-			// In scrollable mode, coordinates are direct since no scaling is applied
-			x = (coords.mouseX - canvasWindow.offsetX) / canvasWindow.scale;
-			y = (coords.mouseY - canvasWindow.offsetY) / canvasWindow.scale;
-		} else {
-			// Original coordinate calculation for non-scrollable mode
-			x = (coords.mouseX - canvasWindow.offsetX) / canvasWindow.scale;
-			y = (coords.mouseY - canvasWindow.offsetY) / canvasWindow.scale;
-		}
+		const imageCoords = canvasToImageCoordinates(coords.mouseX, coords.mouseY);
+		let x = imageCoords.imageX;
+		let y = imageCoords.imageY;
 		
 		let color;
 		if (choicesColors.length > 0) {
@@ -1173,6 +1145,7 @@
 			draw,
 			onBoxFinishCreation,
 			canvasWindow,
+			canvas,
 			canvasXmin,
 			canvasYmin,
 			canvasXmax,
@@ -1188,7 +1161,7 @@
 			shapeSelectedStrokeWidth,
 			scaleFactor  // Pass the current scaleFactor (1 in scrollable mode, calculated value in normal mode)
 		);
-		circle.startCreating(event);
+		circle.startCreating(event, x, y);
 		if (singleBox) {
 			value.boxes = [circle];
 		} else {
@@ -1627,6 +1600,86 @@
 		console.log(`Cleared ${allShapes.length} shapes. Pre-clear history size: ${preClearHistory.length}`);
 	}
 	
+	function exportImage() {
+		if (!image || !canvas) {
+			console.error("No image or canvas available for export");
+			return;
+		}
+		
+		// Create a new canvas for export with original image dimensions
+		const exportCanvas = document.createElement('canvas');
+		const exportCtx = exportCanvas.getContext('2d');
+		
+		if (!exportCtx) {
+			console.error("Could not get export canvas context");
+			return;
+		}
+		
+		// Set export canvas size to original image dimensions
+		exportCanvas.width = originalImageWidth || image.naturalWidth;
+		exportCanvas.height = originalImageHeight || image.naturalHeight;
+		
+		// Draw the original image
+		exportCtx.drawImage(image, 0, 0, exportCanvas.width, exportCanvas.height);
+		
+		// Temporarily set up context for drawing annotations at full resolution
+		const originalScale = canvasWindow.scale;
+		const originalOffsetX = canvasWindow.offsetX;
+		const originalOffsetY = canvasWindow.offsetY;
+		
+		// Set scale to 1 and offsets to 0 for full resolution export
+		canvasWindow.scale = 1;
+		canvasWindow.offsetX = 0;
+		canvasWindow.offsetY = 0;
+		
+		// Render all shapes on the export canvas
+		for (const shape of value.boxes) {
+			// Temporarily update shape scale for export
+			const originalShapeScale = shape.scaleFactor;
+			shape.scaleFactor = 1;
+			// Apply scaling if the shape has this method
+			if ('applyUserScale' in shape && typeof shape.applyUserScale === 'function') {
+				if (typeof (shape as any).applyUserScale === "function") {
+					(shape as any).applyUserScale();
+				}
+			}
+			
+			// Draw the shape
+			shape.render(exportCtx, showLabels);
+			
+			// Restore original shape scale
+			shape.scaleFactor = originalShapeScale;
+			// Restore scaling if the shape has this method
+			if ('applyUserScale' in shape && typeof shape.applyUserScale === 'function') {
+				if (typeof (shape as any).applyUserScale === "function") {
+					(shape as any).applyUserScale();
+				}
+			}
+		}
+		
+		// Restore original canvas window state
+		canvasWindow.scale = originalScale;
+		canvasWindow.offsetX = originalOffsetX;
+		canvasWindow.offsetY = originalOffsetY;
+		
+		// Convert to download link
+		exportCanvas.toBlob((blob) => {
+			if (blob) {
+				const link = document.createElement('a');
+				link.href = URL.createObjectURL(blob);
+				link.download = `annotated_image_${Date.now()}.png`;
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+				URL.revokeObjectURL(link.href);
+				
+				console.log("Image exported successfully");
+			} else {
+				console.error("Failed to create blob for export");
+			}
+		}, 'image/png');
+	}
+	
 	/**
 	 * Rotate the image and all the boxes
 	 * @param op 1: rotate clockwise, -1: rotate counterclockwise
@@ -1773,6 +1826,7 @@
 						draw,
 						onBoxFinishCreation,
 						canvasWindow,
+						canvas,
 						canvasXmin,
 						canvasYmin,
 						canvasXmax,
@@ -1794,6 +1848,7 @@
 						draw,
 						onBoxFinishCreation,
 						canvasWindow,
+						canvas,
 						canvasXmin,
 						canvasYmin,
 						canvasXmax,
@@ -1816,6 +1871,7 @@
 						draw,
 						onBoxFinishCreation,
 						canvasWindow,
+						canvas,
 						canvasXmin,
 						canvasYmin,
 						canvasXmax,
@@ -1837,6 +1893,7 @@
 						draw,
 						onBoxFinishCreation,
 						canvasWindow,
+						canvas,
 						canvasXmin,
 						canvasYmin,
 						canvasXmax,
@@ -2109,6 +2166,16 @@
 				<ClearShapes/>
 			</button>
 			<span class="tool-label">Clear</span>
+		</div>
+		<div class="tool-group">
+			<button
+				class="icon tool-button"
+				aria-label="Export Image"
+				on:click={() => exportImage()}
+			>
+				<Export/>
+			</button>
+			<span class="tool-label">Export</span>
 		</div>
 	</span>
 {/if}

@@ -12,10 +12,10 @@ export default class Circle {
     _centerY: number;
     _radius: number;
     // Bounding box properties for consistent label positioning
-    xmin: number;
-    ymin: number;
-    xmax: number;
-    ymax: number;
+    xmin: number = 0;
+    ymin: number = 0;
+    xmax: number = 0;
+    ymax: number = 0;
     color: string;
     alpha: number;
     isDragging: boolean;
@@ -48,13 +48,15 @@ export default class Circle {
         xmax: number;
         ymax: number;
         cursor: string;
-    }[];
+    }[] = [];
     canvasWindow: WindowViewer;
+    canvas: HTMLCanvasElement;
 
     constructor(
         renderCallBack: () => void,
         onFinishCreation: () => void,
         canvasWindow: WindowViewer,
+        canvas: HTMLCanvasElement,
         canvasXmin: number,
         canvasYmin: number,
         canvasXmax: number,
@@ -74,6 +76,7 @@ export default class Circle {
         this.renderCallBack = renderCallBack;
         this.onFinishCreation = onFinishCreation;
         this.canvasWindow = canvasWindow;
+        this.canvas = canvas;
         this.canvasXmin = canvasXmin;
         this.canvasYmin = canvasYmin;
         this.canvasXmax = canvasXmax;
@@ -358,42 +361,44 @@ export default class Circle {
             }
         }
         return -1;
-    }startCreating(event: MouseEvent): void {
+    }
+    // startCreating accepts initial image-space coords
+    startCreating(event: MouseEvent, imgX: number, imgY: number): void {
         this.isCreating = true;
-        // Store the initial mouse position in image coordinates for calculating radius
-        const canvas = document.querySelector('canvas');
-        if (canvas) {
-            const rect = canvas.getBoundingClientRect();
-            // Set the circle center to the initial click position (in image coordinates)
-            this._centerX = (event.clientX - rect.left - this.canvasWindow.offsetX) / this.canvasWindow.scale;
-            this._centerY = (event.clientY - rect.top - this.canvasWindow.offsetY) / this.canvasWindow.scale;
-            
-            // Store for radius calculation
-            this.offsetMouseX = this._centerX;
-            this.offsetMouseY = this._centerY;
-        }
+        
+        // Use the provided image coordinates directly - no recalculation needed
+        this._centerX = imgX;
+        this._centerY = imgY;
+        
+        // Store for radius calculation
+        this.offsetMouseX = this._centerX;
+        this.offsetMouseY = this._centerY;
+        
         document.addEventListener("pointermove", this.handleCreating);
         document.addEventListener("pointerup", this.stopCreating);
-    }handleCreating = (event: MouseEvent): void => {
+    }
+    handleCreating = (event: MouseEvent): void => {
         if (this.isCreating) {
-            const canvas = document.querySelector('canvas');
-            if (canvas) {
-                const rect = canvas.getBoundingClientRect();
-                // Calculate current mouse position in image coordinates (same as freehand)
-                const currentX = (event.clientX - rect.left - this.canvasWindow.offsetX) / this.canvasWindow.scale;
-                const currentY = (event.clientY - rect.top - this.canvasWindow.offsetY) / this.canvasWindow.scale;
-                
-                // Calculate radius as distance from initial position to current position
-                const deltaX = currentX - this.offsetMouseX;
-                const deltaY = currentY - this.offsetMouseY;
-                const newRadius = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-                
-                // Set minimum radius for usability (much smaller than before)
-                this._radius = Math.max(newRadius, 5); // Minimum 5 pixel radius
-                
-                this.applyUserScale();
-                this.renderCallBack();
-            }
+            if (!this.canvas) return;
+            
+            const rect = this.canvas.getBoundingClientRect();
+            const canvasX = event.clientX - rect.left;
+            const canvasY = event.clientY - rect.top;
+            
+            // Convert from canvas coordinates to image coordinates - same as Canvas.svelte
+            const currentX = (canvasX - this.canvasWindow.offsetX) / this.canvasWindow.scale;
+            const currentY = (canvasY - this.canvasWindow.offsetY) / this.canvasWindow.scale;
+            
+            // Calculate radius as distance from initial position to current position
+            const deltaX = currentX - this.offsetMouseX;
+            const deltaY = currentY - this.offsetMouseY;
+            const newRadius = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            
+            // Set minimum radius for usability (much smaller than before)
+            this._radius = Math.max(newRadius, 5); // Minimum 5 pixel radius
+            
+            this.applyUserScale();
+            this.renderCallBack();
         }
     };
 

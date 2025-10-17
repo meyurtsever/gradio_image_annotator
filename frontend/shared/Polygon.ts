@@ -42,6 +42,7 @@ export default class Polygon {
         cursor: string;
     }[];
     canvasWindow: WindowViewer;
+    canvas: HTMLCanvasElement;
     
     // Bounding box properties for compatibility
     xmin: number;
@@ -61,6 +62,7 @@ export default class Polygon {
         renderCallBack: () => void,
         onFinishCreation: () => void,
         canvasWindow: WindowViewer,
+        canvas: HTMLCanvasElement,
         canvasXmin: number,
         canvasYmin: number,
         canvasXmax: number,
@@ -77,6 +79,7 @@ export default class Polygon {
         this.renderCallBack = renderCallBack;
         this.onFinishCreation = onFinishCreation;
         this.canvasWindow = canvasWindow;
+        this.canvas = canvas;
         this.canvasXmin = canvasXmin;
         this.canvasYmin = canvasYmin;
         this.canvasXmax = canvasXmax;
@@ -426,55 +429,49 @@ export default class Polygon {
             this.updateBoundingBox();
             this.renderCallBack();
         }
-    };    startCreating(event: MouseEvent, canvasX: number, canvasY: number): void {
+    };    startCreating(event: MouseEvent, imageX: number, imageY: number): void {
         this.isCreating = true;
         this.setSelected(true); // Enable keyboard listener
         
-        const canvas = document.querySelector('canvas');
-        if (canvas) {
-            const rect = canvas.getBoundingClientRect();
-            const x = (event.clientX - rect.left - this.canvasWindow.offsetX) / this.canvasWindow.scale;
-            const y = (event.clientY - rect.top - this.canvasWindow.offsetY) / this.canvasWindow.scale;
-            
-            this._points = [{x, y}];
-            this.applyUserScale();
-            this.updateBoundingBox();
-            this.renderCallBack();
-        }
+        // Use the provided image coordinates directly - no recalculation needed
+        this._points = [{x: imageX, y: imageY}];
+        this.applyUserScale();
+        this.updateBoundingBox();
+        this.renderCallBack();
         
         // Note: Don't add document event listeners here since Canvas will handle the clicks
     }    // Method that Canvas can call to add points to the polygon
     addPoint(event: MouseEvent): boolean {
         if (!this.isCreating) return false;
         
-        const canvas = document.querySelector('canvas');
-        if (canvas) {
-            const rect = canvas.getBoundingClientRect();
-            const clickX = event.clientX - rect.left;
-            const clickY = event.clientY - rect.top;
-            
-            // Check if clicking on start point to close polygon
-            if (this._points.length >= this.minPoints && this.isClickOnStartPoint(clickX, clickY)) {
-                this.finishCreating();
-                return true; // Polygon finished
-            }
-            
-            // Add new point
-            const x = (clickX - this.canvasWindow.offsetX) / this.canvasWindow.scale;
-            const y = (clickY - this.canvasWindow.offsetY) / this.canvasWindow.scale;
-            
-            const newPoint = {x, y};
-            this._points.push(newPoint);
-            
-            // Call undo/redo callback if provided
-            if (this.onPointAdded) {
-                this.onPointAdded(newPoint);
-            }
-            
-            this.applyUserScale();
-            this.updateBoundingBox();
-            this.renderCallBack();
+        if (!this.canvas) return false;
+        
+        const rect = this.canvas.getBoundingClientRect();
+        const clickX = event.clientX - rect.left;
+        const clickY = event.clientY - rect.top;
+        
+        // Check if clicking on start point to close polygon
+        if (this._points.length >= this.minPoints && this.isClickOnStartPoint(clickX, clickY)) {
+            this.finishCreating();
+            return true; // Polygon finished
         }
+        
+        // Add new point - convert from canvas coordinates to image coordinates - same as Canvas.svelte
+        const x = (clickX - this.canvasWindow.offsetX) / this.canvasWindow.scale;
+        const y = (clickY - this.canvasWindow.offsetY) / this.canvasWindow.scale;
+        
+        const newPoint = {x, y};
+        this._points.push(newPoint);
+        
+        // Call undo/redo callback if provided
+        if (this.onPointAdded) {
+            this.onPointAdded(newPoint);
+        }
+        
+        this.applyUserScale();
+        this.updateBoundingBox();
+        this.renderCallBack();
+        
         return false; // Continue creating
     }
 
@@ -527,43 +524,42 @@ export default class Polygon {
             const mouseY = event.clientY;
             
             // Calculate the new position in image coordinates
-            const canvas = document.querySelector('canvas');
-            if (canvas) {
-                const rect = canvas.getBoundingClientRect();
-                const canvasX = mouseX - rect.left;
-                const canvasY = mouseY - rect.top;
+            if (!this.canvas) return;
+            
+            const rect = this.canvas.getBoundingClientRect();
+            const canvasX = mouseX - rect.left;
+            const canvasY = mouseY - rect.top;
+            
+            // Convert to image coordinates
+            const newX = (canvasX - this.canvasWindow.offsetX) / this.canvasWindow.scale;
+            const newY = (canvasY - this.canvasWindow.offsetY) / this.canvasWindow.scale;
+            
+            // Get the vertex index being moved
+            const vertexIndex = this.getPolygonVertexIndex(this.resizingHandleIndex);
+            
+            if (vertexIndex >= 0 && vertexIndex < this._points.length) {
+                // Constrain movement within canvas bounds
+                const canvasW = (this.canvasXmax - this.canvasXmin) / this.canvasWindow.scale;
+                const canvasH = (this.canvasYmax - this.canvasYmin) / this.canvasWindow.scale;
                 
-                // Convert to image coordinates
-                const newX = (canvasX - this.canvasWindow.offsetX) / this.canvasWindow.scale;
-                const newY = (canvasY - this.canvasWindow.offsetY) / this.canvasWindow.scale;
+                const clampedX = Math.max(0, Math.min(newX, canvasW));
+                const clampedY = Math.max(0, Math.min(newY, canvasH));
                 
-                // Get the vertex index being moved
-                const vertexIndex = this.getPolygonVertexIndex(this.resizingHandleIndex);
+                // Calculate the movement delta
+                const deltaX = clampedX - this._points[vertexIndex].x;
+                const deltaY = clampedY - this._points[vertexIndex].y;
                 
-                if (vertexIndex >= 0 && vertexIndex < this._points.length) {
-                    // Constrain movement within canvas bounds
-                    const canvasW = (this.canvasXmax - this.canvasXmin) / this.canvasWindow.scale;
-                    const canvasH = (this.canvasYmax - this.canvasYmin) / this.canvasWindow.scale;
-                    
-                    const clampedX = Math.max(0, Math.min(newX, canvasW));
-                    const clampedY = Math.max(0, Math.min(newY, canvasH));
-                    
-                    // Calculate the movement delta
-                    const deltaX = clampedX - this._points[vertexIndex].x;
-                    const deltaY = clampedY - this._points[vertexIndex].y;
-                    
-                    // Apply smooth local deformation for polygons with many vertices
-                    if (this._points.length > 6) {
-                        this.applyPolygonLocalDeformation(vertexIndex, deltaX, deltaY);
-                    } else {
-                        // For simple polygons, just move the single vertex
-                        this._points[vertexIndex] = { x: clampedX, y: clampedY };
-                    }
-                    
-                    // Update bounding box and handles
-                    this.updateBoundingBox();
-                    this.renderCallBack();
+                // Apply smooth local deformation for polygons with many vertices
+                if (this._points.length > 6) {
+                    this.applyPolygonLocalDeformation(vertexIndex, deltaX, deltaY);
+                } else {
+                    // For simple polygons, just move the single vertex
+                    this._points[vertexIndex] = { x: clampedX, y: clampedY };
                 }
+                
+                // Update bounding box and handles
+                this.updateBoundingBox();
+                this.renderCallBack();
             }
         }
     };stopResize = (): void => {
