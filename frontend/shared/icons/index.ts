@@ -15,3 +15,4 @@ export { default as UndoIcon } from "./UndoIcon.svelte";
 export { default as RedoIcon } from "./RedoIcon.svelte";
 export { default as DropdownArrow } from "./DropdownArrow.svelte";
 export { default as Export } from "./Export.svelte";
+export { default as Navigator } from "./Navigator.svelte";

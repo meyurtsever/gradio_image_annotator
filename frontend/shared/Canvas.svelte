@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { onMount, onDestroy, createEventDispatcher } from "svelte";	import { BoundingBox, Hand, Trash, Label, Freehand, Circle, Polygon, Erase, UndoIcon, RedoIcon, DropdownArrow, Bulb, ClearShapes, Export } from "./icons/index";
+	import { onMount, onDestroy, createEventDispatcher } from "svelte";	import { BoundingBox, Hand, Trash, Label, Freehand, Circle, Polygon, Erase, UndoIcon, RedoIcon, DropdownArrow, Bulb, ClearShapes, Export, Navigator } from "./icons/index";
 	import ModalBox from "./ModalBox.svelte";
 	import EraserSettingsModal from "./EraserSettingsModal.svelte";
 	import ShapeSettingsModal from "./ShapeSettingsModal.svelte";
+	import PositionNavigator from "./PositionNavigator.svelte";
 	import Box from "./Box";
 	import CircleShape from "./Circle";
 	import FreehandPath from "./FreehandPath";
@@ -35,7 +36,10 @@
 	const MAX_RECOVERY_COUNT = 3; // Allow up to 3 recoveries per clear state
 
 	let isInitialState = true; // Flag to track if we're in initial state
-	let showLabels = true; // Flag to control label visibility	// Reactive statement to ensure proper updates when showLabels changes
+	let showLabels = true; // Flag to control label visibility
+	let showPositionNavigator = false; // Flag to control position navigator visibility
+	
+	// Reactive statement to ensure proper updates when showLabels changes
 	$: labelVisibility = showLabels;
 
 	let initialized = false;
@@ -82,6 +86,11 @@
 	let mode: Mode = Mode.drag;
 	let canvasWindow: WindowViewer = new WindowViewer(draw);
 	let eraser: Eraser;
+	
+	// Reactive variables for position navigator - updated on every draw
+	let currentOffsetX = 0;
+	let currentOffsetY = 0;
+	let currentScale = 1;
 	
 	// Function to convert string mode to enum Mode
 	function getInitialMode(modeString: string): Mode {
@@ -163,6 +172,11 @@
 		return hex;
 	}    function draw() {
 		if (ctx) {
+			// Update reactive variables for position navigator - ensures real-time updates
+			currentOffsetX = canvasWindow.offsetX;
+			currentOffsetY = canvasWindow.offsetY;
+			currentScale = canvasWindow.scale;
+			
 			ctx.clearRect(0, 0, canvas.width, canvas.height);
 			ctx.save();
 			ctx.translate(canvasWindow.offsetX, canvasWindow.offsetY);
@@ -451,6 +465,22 @@
 		canvasWindow.scale = newScale;
 		draw();
 	}
+
+	function handleNavigatorNavigation(event: CustomEvent<{ x: number; y: number }>) {
+		const { x, y } = event.detail;
+		
+		// Clamp the offset values to keep image within bounds
+		const maxOffsetX = 0;
+		const minOffsetX = canvas.width - (imageWidth * canvasWindow.scale);
+		const maxOffsetY = 0;
+		const minOffsetY = canvas.height - (imageHeight * canvasWindow.scale);
+		
+		canvasWindow.offsetX = Math.max(minOffsetX, Math.min(maxOffsetX, x));
+		canvasWindow.offsetY = Math.max(minOffsetY, Math.min(maxOffsetY, y));
+		
+		draw();
+	}
+
 	function resetZoom() {
 		// Reset scale to 1.0
 		canvasWindow.scale = 1.0;
@@ -1717,6 +1747,11 @@
 				
 				isScrollableMode = shouldScroll;
 				
+				// Auto-toggle position navigator when scrollable mode is enabled
+				if (isScrollableMode && !showPositionNavigator) {
+					showPositionNavigator = true;
+				}
+				
 				if (isScrollableMode && preserveResolution) {
 					// Scrollable mode: maintain original image resolution within fixed container
 					imageWidth = canvasWindow.imageRotatedWidth;
@@ -2005,6 +2040,20 @@
 		class="canvas-annotator"
 		class:scrollable-canvas={isScrollableMode}
 	></canvas>
+	
+	{#if showPositionNavigator && imageWidth > 0 && imageHeight > 0}
+		<PositionNavigator
+			imageWidth={imageWidth}
+			imageHeight={imageHeight}
+			canvasWidth={canvas ? canvas.width : 0}
+			canvasHeight={canvas ? canvas.height : 0}
+			offsetX={currentOffsetX}
+			offsetY={currentOffsetY}
+			scale={currentScale}
+			image={image}
+			on:navigate={handleNavigatorNavigation}
+		/>
+	{/if}
 </div>
 
 {#if interactive}
@@ -2176,6 +2225,19 @@
 				<Export/>
 			</button>
 			<span class="tool-label">Export</span>
+		</div>
+		<div class="tool-group">
+			<button
+				class="icon tool-button"
+				class:selected={showPositionNavigator}
+				aria-label="Show/Hide Position"
+				on:click={() => { 
+					showPositionNavigator = !showPositionNavigator;
+				}}
+			>
+				<Navigator/>
+			</button>
+			<span class="tool-label">Position</span>
 		</div>
 	</span>
 {/if}
