@@ -23,12 +23,14 @@ export default class Eraser {
     private brushSize: number = 20; // Default brush size in pixels
     private canvasWindow: WindowViewer;
     private scaleFactor: number;
+    private isScrollableMode: boolean;
     private maskCanvas: HTMLCanvasElement;
     private maskCtx: CanvasRenderingContext2D;
     
-    constructor(canvasWindow: WindowViewer, scaleFactor: number = 1) {
+    constructor(canvasWindow: WindowViewer, scaleFactor: number = 1, isScrollableMode: boolean = false) {
         this.canvasWindow = canvasWindow;
         this.scaleFactor = scaleFactor;
+        this.isScrollableMode = isScrollableMode;
         
         // Create off-screen canvas for mask operations
         this.maskCanvas = document.createElement('canvas');
@@ -41,6 +43,10 @@ export default class Eraser {
     
     setScaleFactor(scaleFactor: number) {
         this.scaleFactor = scaleFactor;
+    }
+    
+    setScrollableMode(isScrollable: boolean) {
+        this.isScrollableMode = isScrollable;
     }
     
     startErase(event: PointerEvent, canvasRect: DOMRect) {
@@ -66,8 +72,16 @@ export default class Eraser {
         const mouseY = event.clientY - canvasRect.top;
         
         // Convert to image coordinates
-        const imageX = (mouseX - this.canvasWindow.offsetX) / this.scaleFactor / this.canvasWindow.scale;
-        const imageY = (mouseY - this.canvasWindow.offsetY) / this.scaleFactor / this.canvasWindow.scale;
+        let imageX, imageY;
+        if (this.isScrollableMode) {
+            // In scrollable mode: don't divide by scaleFactor
+            imageX = (mouseX - this.canvasWindow.offsetX) / this.canvasWindow.scale;
+            imageY = (mouseY - this.canvasWindow.offsetY) / this.canvasWindow.scale;
+        } else {
+            // In non-scrollable mode: divide by scaleFactor
+            imageX = (mouseX - this.canvasWindow.offsetX) / this.scaleFactor / this.canvasWindow.scale;
+            imageY = (mouseY - this.canvasWindow.offsetY) / this.scaleFactor / this.canvasWindow.scale;
+        }
         
         this.erasePath.push({ x: imageX, y: imageY });
     }    /**
@@ -97,7 +111,9 @@ export default class Eraser {
     private createEraseMask(erasePath: ErasePoint[]): EraseMask {
         // Calculate bounding box for the erase path
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        const brushRadius = this.brushSize / this.scaleFactor / this.canvasWindow.scale;
+        const brushRadius = this.isScrollableMode 
+            ? this.brushSize / this.canvasWindow.scale
+            : this.brushSize / this.scaleFactor / this.canvasWindow.scale;
         
         for (const point of erasePath) {
             minX = Math.min(minX, point.x - brushRadius);
@@ -167,21 +183,33 @@ export default class Eraser {
      * Convert box to polygon for uniform mask-based processing
      */
     private boxToPolygon(box: Box): PolygonShape {
+        // Ensure label is a string (handle arrays, null, undefined)
+        let labelStr: string;
+        if (typeof box.label === 'string') {
+            labelStr = box.label;
+        } else if (Array.isArray(box.label)) {
+            labelStr = (box.label as any[]).join(', ');
+        } else {
+            labelStr = String(box.label || '');
+        }
+        
         const polygon = new PolygonShape(
             box.renderCallBack,
             box.onFinishCreation,
             box.canvasWindow,
+            box.canvas,
             box.canvasXmin,
             box.canvasYmin,
             box.canvasXmax,
             box.canvasYmax,
-            box.label,
+            labelStr,
             box.color,
             box.alpha,
             box.minSize,
             box.resizeHandleSize,
             box.thickness,
-            box.selectedThickness
+            box.selectedThickness,
+            box.scaleFactor
         );
         
         // Set polygon points to box corners
@@ -278,21 +306,33 @@ export default class Eraser {
      * Convert circle to polygon for uniform mask-based processing
      */
     private circleToPolygon(circle: CircleShape): PolygonShape {
+        // Ensure label is a string
+        let labelStr: string;
+        if (typeof circle.label === 'string') {
+            labelStr = circle.label;
+        } else if (Array.isArray(circle.label)) {
+            labelStr = (circle.label as any[]).join(', ');
+        } else {
+            labelStr = String(circle.label || '');
+        }
+        
         const polygon = new PolygonShape(
             circle.renderCallBack,
             circle.onFinishCreation,
             circle.canvasWindow,
+            circle.canvas,
             circle.canvasXmin,
             circle.canvasYmin,
             circle.canvasXmax,
             circle.canvasYmax,
-            circle.label,
+            labelStr,
             circle.color,
             circle.alpha,
             circle.minSize,
             circle.resizeHandleSize,
             circle.thickness,
-            circle.selectedThickness
+            circle.selectedThickness,
+            circle.scaleFactor
         );
           // Approximate circle with polygon (16 sides for reasonable accuracy)
         const sides = 16;
@@ -314,21 +354,33 @@ export default class Eraser {
      * Convert freehand path to polygon for uniform processing
      */
     private freehandToPolygon(freehand: FreehandPath): PolygonShape {
+        // Ensure label is a string
+        let labelStr: string;
+        if (typeof freehand.label === 'string') {
+            labelStr = freehand.label;
+        } else if (Array.isArray(freehand.label)) {
+            labelStr = (freehand.label as any[]).join(', ');
+        } else {
+            labelStr = String(freehand.label || '');
+        }
+        
         const polygon = new PolygonShape(
             freehand.renderCallBack,
             freehand.onFinishCreation,
             freehand.canvasWindow,
+            freehand.canvas,
             freehand.canvasXmin,
             freehand.canvasYmin,
             freehand.canvasXmax,
             freehand.canvasYmax,
-            freehand.label,
+            labelStr,
             freehand.color,
             freehand.alpha,
             freehand.minSize,
             freehand.resizeHandleSize,
             freehand.thickness,
-            freehand.selectedThickness
+            freehand.selectedThickness,
+            freehand.scaleFactor
         );
         
         // Copy the points from freehand to polygon
@@ -342,15 +394,26 @@ export default class Eraser {
      * Convert polygon back to freehand path
      */
     private polygonToFreehand(polygon: PolygonShape, originalFreehand: FreehandPath): FreehandPath {
+        // Ensure label is a string
+        let labelStr: string;
+        if (typeof originalFreehand.label === 'string') {
+            labelStr = originalFreehand.label;
+        } else if (Array.isArray(originalFreehand.label)) {
+            labelStr = (originalFreehand.label as any[]).join(', ');
+        } else {
+            labelStr = String(originalFreehand.label || '');
+        }
+        
         const freehand = new FreehandPath(
             originalFreehand.renderCallBack,
             originalFreehand.onFinishCreation,
             originalFreehand.canvasWindow,
+            originalFreehand.canvas,
             originalFreehand.canvasXmin,
             originalFreehand.canvasYmin,
             originalFreehand.canvasXmax,
             originalFreehand.canvasYmax,
-            originalFreehand.label,
+            labelStr,
             originalFreehand.color,
             originalFreehand.alpha,
             originalFreehand.minSize,
@@ -411,75 +474,104 @@ export default class Eraser {
     private eraseFromPolygon(polygon: PolygonShape, eraseMask: EraseMask): PolygonShape[] {
         if (polygon._points.length < 3) return [];
         
-        // Check which original vertices should be kept
+        // First, check if the entire polygon is erased
+        let allPointsErased = true;
+        for (const point of polygon._points) {
+            if (!this.isPointErased(point, eraseMask)) {
+                allPointsErased = false;
+                break;
+            }
+        }
+        if (allPointsErased) return [];
+        
+        // Build the new polygon by walking around the original edges
         const survivingPoints: { x: number, y: number }[] = [];
         
         for (let i = 0; i < polygon._points.length; i++) {
             const currentPoint = polygon._points[i];
             const nextPoint = polygon._points[(i + 1) % polygon._points.length];
             
-            // Check if current vertex is erased
             const currentErased = this.isPointErased(currentPoint, eraseMask);
-            
-            // Always add the current point if it's not erased
-            if (!currentErased) {
-                survivingPoints.push(currentPoint);
-            }
-            
-            // Check the edge between current and next point for intersections
-            // Only sample edges that cross from erased to unerased areas or vice versa
             const nextErased = this.isPointErased(nextPoint, eraseMask);
             
-            if (currentErased !== nextErased) {
-                // Edge crosses eraser boundary, find the intersection point
-                const edgePoint = this.findEraserEdge(
-                    currentErased ? nextPoint : currentPoint,
-                    currentErased ? currentPoint : nextPoint,
-                    eraseMask
-                );
-                
-                if (edgePoint) {
-                    // Make sure the edge point is sufficiently far from existing points
-                    const lastPoint = survivingPoints[survivingPoints.length - 1];
-                    if (!lastPoint || 
-                        Math.sqrt(Math.pow(edgePoint.x - lastPoint.x, 2) + 
-                                 Math.pow(edgePoint.y - lastPoint.y, 2)) > 2) {
-                        survivingPoints.push(edgePoint);
-                    }
+            // Case 1: Current point is NOT erased - add it
+            if (!currentErased) {
+                survivingPoints.push({ ...currentPoint });
+            }
+            
+            // Case 2: Edge transitions from unerased to erased
+            if (!currentErased && nextErased) {
+                // Find where the edge enters the erased area
+                const entryPoint = this.findEraserEdge(currentPoint, nextPoint, eraseMask);
+                if (entryPoint) {
+                    survivingPoints.push(entryPoint);
+                }
+            }
+            
+            // Case 3: Edge transitions from erased to unerased  
+            if (currentErased && !nextErased) {
+                // Find where the edge exits the erased area
+                const exitPoint = this.findEraserEdge(nextPoint, currentPoint, eraseMask);
+                if (exitPoint) {
+                    survivingPoints.push(exitPoint);
                 }
             }
         }
         
-        // Remove consecutive duplicate points with more generous threshold
+        // Remove consecutive duplicate points
         const filteredPoints: { x: number, y: number }[] = [];
         for (let i = 0; i < survivingPoints.length; i++) {
             const point = survivingPoints[i];
             const prevPoint = filteredPoints[filteredPoints.length - 1];
             
-            if (!prevPoint || 
-                Math.sqrt(Math.pow(point.x - prevPoint.x, 2) + 
-                         Math.pow(point.y - prevPoint.y, 2)) > 1.5) {
+            const distance = prevPoint 
+                ? Math.sqrt(Math.pow(point.x - prevPoint.x, 2) + Math.pow(point.y - prevPoint.y, 2))
+                : Infinity;
+                
+            if (distance > 1.0) {
                 filteredPoints.push(point);
+            }
+        }
+        
+        // Also check if first and last points are duplicates
+        if (filteredPoints.length > 2) {
+            const first = filteredPoints[0];
+            const last = filteredPoints[filteredPoints.length - 1];
+            const distance = Math.sqrt(Math.pow(first.x - last.x, 2) + Math.pow(first.y - last.y, 2));
+            if (distance < 1.0) {
+                filteredPoints.pop();
             }
         }
         
         if (filteredPoints.length < 3) return []; // Not enough points for a polygon
         
+        // Ensure label is a string
+        let labelStr: string;
+        if (typeof polygon.label === 'string') {
+            labelStr = polygon.label;
+        } else if (Array.isArray(polygon.label)) {
+            labelStr = (polygon.label as any[]).join(', ');
+        } else {
+            labelStr = String(polygon.label || '');
+        }
+        
         const newPolygon = new PolygonShape(
             polygon.renderCallBack,
             polygon.onFinishCreation,
             polygon.canvasWindow,
+            polygon.canvas,
             polygon.canvasXmin,
             polygon.canvasYmin,
             polygon.canvasXmax,
             polygon.canvasYmax,
-            polygon.label,
+            labelStr,
             polygon.color,
             polygon.alpha,
             polygon.minSize,
             polygon.resizeHandleSize,
             polygon.thickness,
-            polygon.selectedThickness
+            polygon.selectedThickness,
+            polygon.scaleFactor
         );
         newPolygon._points = filteredPoints;
         newPolygon.updateBoundingBox();
@@ -569,15 +661,26 @@ export default class Eraser {
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         
-        const brushRadius = this.brushSize / this.scaleFactor / this.canvasWindow.scale;
+        // Calculate brush radius based on mode
+        const brushRadius = this.isScrollableMode 
+            ? this.brushSize / this.canvasWindow.scale
+            : this.brushSize / this.scaleFactor / this.canvasWindow.scale;
         
         // Draw brush circles at each point
         for (let i = 0; i < this.erasePath.length; i++) {
             const point = this.erasePath[i];
-            // Convert back to canvas coordinates
-            const canvasX = point.x * this.scaleFactor * this.canvasWindow.scale + this.canvasWindow.offsetX;
-            const canvasY = point.y * this.scaleFactor * this.canvasWindow.scale + this.canvasWindow.offsetY;
-            const canvasRadius = brushRadius * this.scaleFactor * this.canvasWindow.scale;
+            // Convert back to canvas coordinates based on mode
+            let canvasX, canvasY, canvasRadius;
+            
+            if (this.isScrollableMode) {
+                canvasX = point.x * this.canvasWindow.scale + this.canvasWindow.offsetX;
+                canvasY = point.y * this.canvasWindow.scale + this.canvasWindow.offsetY;
+                canvasRadius = brushRadius * this.canvasWindow.scale;
+            } else {
+                canvasX = point.x * this.scaleFactor * this.canvasWindow.scale + this.canvasWindow.offsetX;
+                canvasY = point.y * this.scaleFactor * this.canvasWindow.scale + this.canvasWindow.offsetY;
+                canvasRadius = brushRadius * this.scaleFactor * this.canvasWindow.scale;
+            }
             
             ctx.beginPath();
             ctx.arc(canvasX, canvasY, canvasRadius, 0, 2 * Math.PI);
@@ -586,8 +689,15 @@ export default class Eraser {
             // Connect with previous point for smooth brush stroke
             if (i > 0) {
                 const prevPoint = this.erasePath[i - 1];
-                const prevCanvasX = prevPoint.x * this.scaleFactor * this.canvasWindow.scale + this.canvasWindow.offsetX;
-                const prevCanvasY = prevPoint.y * this.scaleFactor * this.canvasWindow.scale + this.canvasWindow.offsetY;
+                let prevCanvasX, prevCanvasY;
+                
+                if (this.isScrollableMode) {
+                    prevCanvasX = prevPoint.x * this.canvasWindow.scale + this.canvasWindow.offsetX;
+                    prevCanvasY = prevPoint.y * this.canvasWindow.scale + this.canvasWindow.offsetY;
+                } else {
+                    prevCanvasX = prevPoint.x * this.scaleFactor * this.canvasWindow.scale + this.canvasWindow.offsetX;
+                    prevCanvasY = prevPoint.y * this.scaleFactor * this.canvasWindow.scale + this.canvasWindow.offsetY;
+                }
                 
                 // Draw connecting line with brush width
                 ctx.lineWidth = canvasRadius * 2;

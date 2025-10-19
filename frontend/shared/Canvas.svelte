@@ -1211,10 +1211,11 @@
 
 	function startErase(event: PointerEvent) {
 		if (!eraser) {
-			eraser = new Eraser(canvasWindow, scaleFactor);
+			eraser = new Eraser(canvasWindow, scaleFactor, isScrollableMode);
 			eraser.setBrushSize(eraserSize);
 		}
 		eraser.setScaleFactor(scaleFactor);
+		eraser.setScrollableMode(isScrollableMode);
 		
 		const rect = canvas.getBoundingClientRect();
 		eraser.startErase(event, rect);

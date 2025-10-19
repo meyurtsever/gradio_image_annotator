@@ -1,4 +1,9 @@
 export function setAlpha(rgbColor: string, alpha: number): string {
+    // Safety check: ensure rgbColor is a string
+    if (!rgbColor || typeof rgbColor !== 'string') {
+        return `rgba(50, 50, 50, ${alpha})`;
+    }
+    
     if (rgbColor.startsWith('rgba')) {
         return rgbColor.replace(/[\d.]+$/, alpha.toString());
     }
