@@ -42,7 +42,7 @@ export default class Polygon {
         cursor: string;
     }[];
     canvasWindow: WindowViewer;
-    canvas: HTMLCanvasElement;
+    canvasRef: WeakRef<HTMLCanvasElement> | null;
     
     // Bounding box properties for compatibility
     xmin: number;
@@ -79,7 +79,7 @@ export default class Polygon {
         this.renderCallBack = renderCallBack;
         this.onFinishCreation = onFinishCreation;
         this.canvasWindow = canvasWindow;
-        this.canvas = canvas;
+        this.canvasRef = canvas ? new WeakRef(canvas) : null;
         this.canvasXmin = canvasXmin;
         this.canvasYmin = canvasYmin;
         this.canvasXmax = canvasXmax;
@@ -444,9 +444,10 @@ export default class Polygon {
     addPoint(event: MouseEvent): boolean {
         if (!this.isCreating) return false;
         
-        if (!this.canvas) return false;
+        const canvas = this.canvasRef?.deref();
+        if (!canvas) return false;
         
-        const rect = this.canvas.getBoundingClientRect();
+        const rect = canvas.getBoundingClientRect();
         const clickX = event.clientX - rect.left;
         const clickY = event.clientY - rect.top;
         
@@ -524,9 +525,10 @@ export default class Polygon {
             const mouseY = event.clientY;
             
             // Calculate the new position in image coordinates
-            if (!this.canvas) return;
+            const canvas = this.canvasRef?.deref();
+            if (!canvas) return;
             
-            const rect = this.canvas.getBoundingClientRect();
+            const rect = canvas.getBoundingClientRect();
             const canvasX = mouseX - rect.left;
             const canvasY = mouseY - rect.top;
             

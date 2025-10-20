@@ -49,7 +49,7 @@ export default class Box {
         cursor: string;
     }[] = [];
     canvasWindow: WindowViewer;
-    canvas: HTMLCanvasElement;
+    canvasRef: WeakRef<HTMLCanvasElement> | null;
 
     constructor(
         renderCallBack: () => void,
@@ -76,7 +76,7 @@ export default class Box {
         this.renderCallBack = renderCallBack;
         this.onFinishCreation = onFinishCreation;
         this.canvasWindow = canvasWindow;
-        this.canvas = canvas;
+        this.canvasRef = canvas ? new WeakRef(canvas) : null;
         this.canvasXmin = canvasXmin;
         this.canvasYmin = canvasYmin;
         this.canvasXmax = canvasXmax;
@@ -416,9 +416,10 @@ export default class Box {
 
     handleCreating = (event: MouseEvent): void => {
         if (this.isCreating) {
-            if (!this.canvas) return;
+            const canvas = this.canvasRef?.deref();
+            if (!canvas) return;
             
-            const rect = this.canvas.getBoundingClientRect();
+            const rect = canvas.getBoundingClientRect();
             const canvasX = event.clientX - rect.left;
             const canvasY = event.clientY - rect.top;
 

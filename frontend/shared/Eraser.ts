@@ -193,11 +193,13 @@ export default class Eraser {
             labelStr = String(box.label || '');
         }
         
+        const canvas = box.canvasRef?.deref() || null;
+        
         const polygon = new PolygonShape(
             box.renderCallBack,
             box.onFinishCreation,
             box.canvasWindow,
-            box.canvas,
+            canvas as HTMLCanvasElement,
             box.canvasXmin,
             box.canvasYmin,
             box.canvasXmax,
@@ -316,11 +318,13 @@ export default class Eraser {
             labelStr = String(circle.label || '');
         }
         
+        const canvas = circle.canvasRef?.deref() || null;
+        
         const polygon = new PolygonShape(
             circle.renderCallBack,
             circle.onFinishCreation,
             circle.canvasWindow,
-            circle.canvas,
+            canvas as HTMLCanvasElement,
             circle.canvasXmin,
             circle.canvasYmin,
             circle.canvasXmax,
@@ -364,11 +368,13 @@ export default class Eraser {
             labelStr = String(freehand.label || '');
         }
         
+        const canvas = freehand.canvasRef?.deref() || null;
+        
         const polygon = new PolygonShape(
             freehand.renderCallBack,
             freehand.onFinishCreation,
             freehand.canvasWindow,
-            freehand.canvas,
+            canvas as HTMLCanvasElement,
             freehand.canvasXmin,
             freehand.canvasYmin,
             freehand.canvasXmax,
@@ -404,11 +410,13 @@ export default class Eraser {
             labelStr = String(originalFreehand.label || '');
         }
         
+        const canvas = originalFreehand.canvasRef?.deref() || null;
+        
         const freehand = new FreehandPath(
             originalFreehand.renderCallBack,
             originalFreehand.onFinishCreation,
             originalFreehand.canvasWindow,
-            originalFreehand.canvas,
+            canvas as HTMLCanvasElement,
             originalFreehand.canvasXmin,
             originalFreehand.canvasYmin,
             originalFreehand.canvasXmax,
@@ -555,11 +563,13 @@ export default class Eraser {
             labelStr = String(polygon.label || '');
         }
         
+        const canvas = polygon.canvasRef?.deref() || null;
+        
         const newPolygon = new PolygonShape(
             polygon.renderCallBack,
             polygon.onFinishCreation,
             polygon.canvasWindow,
-            polygon.canvas,
+            canvas as HTMLCanvasElement,
             polygon.canvasXmin,
             polygon.canvasYmin,
             polygon.canvasXmax,

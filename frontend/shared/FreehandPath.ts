@@ -41,7 +41,7 @@ export default class FreehandPath {
         cursor: string;
     }[];
     canvasWindow: WindowViewer;
-    canvas: HTMLCanvasElement;
+    canvasRef: WeakRef<HTMLCanvasElement> | null;
     // Bounding box properties for compatibility
     xmin: number;
     ymin: number;
@@ -76,7 +76,7 @@ export default class FreehandPath {
         this.renderCallBack = renderCallBack;
         this.onFinishCreation = onFinishCreation;
         this.canvasWindow = canvasWindow;
-        this.canvas = canvas;
+        this.canvasRef = canvas ? new WeakRef(canvas) : null;
         this.canvasXmin = canvasXmin;
         this.canvasYmin = canvasYmin;
         this.canvasXmax = canvasXmax;
@@ -404,9 +404,10 @@ export default class FreehandPath {
         document.addEventListener("pointerup", this.stopCreating);
     }    handleCreating = (event: MouseEvent): void => {
         if (this.isCreating) {
-            if (!this.canvas) return;
+            const canvas = this.canvasRef?.deref();
+            if (!canvas) return;
             
-            const rect = this.canvas.getBoundingClientRect();
+            const rect = canvas.getBoundingClientRect();
             const canvasCoordX = event.clientX - rect.left;
             const canvasCoordY = event.clientY - rect.top;
             

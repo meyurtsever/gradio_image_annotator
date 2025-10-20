@@ -2,38 +2,7 @@
 # `gradio_image_annotation`
 <a href="https://pypi.org/project/gradio_image_annotation/" target="_blank"><img alt="PyPI - Version" src="https://img.shields.io/pypi/v/gradio_image_annotation"></a>  
 
-A powerful Gradio component for annotating images with multiple shape types, featuring high-resolution image support with pan and zoom capabilities.
-
-## Features
-
-### Annotation Tools
-- **Bounding Boxes** - Draw rectangular boxes with drag or click mode
-- **Freehand Paths** - Draw custom freehand shapes
-- **Circles** - Create circular annotations
-- **Polygons** - Define multi-point polygon shapes
-- **Eraser Tool** - Precisely remove portions of any shape with adjustable brush size
-
-### High-Resolution Image Support
-- **Scrollable Canvas** - Automatically enables pan and zoom for large images
-- **Resolution Preservation** - Maintains original image quality without downscaling
-- **Smooth Navigation** - Pan with hand tool or scroll with mouse wheel
-- **Position Navigator** - Mini-map overlay showing current viewport position (auto-enabled for large images)
-  - Toggle visibility with the Position Navigator button in the toolbar
-  - Click or drag in the navigator to jump to different image regions
-  - Real-time viewport tracking during pan/zoom operations
-
-### Flexible Annotation Modes
-- **Drag Mode** - Click and drag to create shapes
-- **Click Mode** - Click points to define shape boundaries
-- **Label System** - Assign labels and colors to annotations
-- **Multi-select** - Select and edit multiple shapes simultaneously
-
-### User Interface
-- **Undo/Redo** - Full history support for all annotation actions
-- **Export** - Export annotations to JSON format
-- **Clear All** - Remove all shapes with one click
-- **Shape Settings** - Customize colors, labels, and properties per shape
-- **Eraser Settings** - Adjust eraser brush size with modal interface
+A Gradio component that can be used to annotate images with bounding boxes.
 
 ## Installation
 
@@ -74,7 +43,8 @@ example_annotation = {
 
 # Example with high-resolution image to test scrollable functionality
 high_res_annotation = {
-    "image": "https://images.unsplash.com/photo-1559827260-dc66d52bef19?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2940&h=1960",  # High resolution image
+    #"image": "https://images.unsplash.com/photo-1559827260-dc66d52bef19?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2940&h=1960",  # High resolution image
+    "image": "https://i.postimg.cc/R9xnJP03/836163430-slice-0002.png",  # High resolution image
     "boxes": []
 }
 
