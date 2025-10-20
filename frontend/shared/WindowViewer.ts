@@ -92,4 +92,23 @@ export default class WindowViewer {
         this.offsetX = offsetX;
         this.offsetY = offsetY;
     }
+
+    clampOffsets(): void {
+        // Clamp offsets to keep image properly aligned within canvas bounds
+        if (this.imageWidth * this.scale > this.canvasWidth) {
+            // Image is wider than canvas - prevent white space on left/right
+            this.offsetX = clamp(this.offsetX, this.canvasWidth - (this.imageWidth * this.scale), 0);
+        } else {
+            // Image fits within canvas width - center or keep within bounds
+            this.offsetX = clamp(this.offsetX, 0, this.canvasWidth - (this.imageWidth * this.scale));
+        }
+
+        if (this.imageHeight * this.scale > this.canvasHeight) {
+            // Image is taller than canvas - prevent white space on top/bottom
+            this.offsetY = clamp(this.offsetY, this.canvasHeight - (this.imageHeight * this.scale), 0);
+        } else {
+            // Image fits within canvas height - center or keep within bounds
+            this.offsetY = clamp(this.offsetY, 0, this.canvasHeight - (this.imageHeight * this.scale));
+        }
+    }
 }

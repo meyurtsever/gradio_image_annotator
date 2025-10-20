@@ -452,7 +452,17 @@
 		const delta = 1 / (1 + (event.deltaY / 1000) * 0.5);
 
 		const newScaleTmp = parseFloat((canvasWindow.scale * delta).toFixed(2));
-		const newScale = newScaleTmp < 1 ? 1 : newScaleTmp;
+		
+		// Calculate minimum scale to fit entire image in canvas (like 1:1 view)
+		let minScale = 0.1; // Absolute minimum to prevent extreme zoom out
+		if (image !== null && canvas) {
+			const scaleToFitWidth = canvas.width / imageWidth;
+			const scaleToFitHeight = canvas.height / imageHeight;
+			// Use the smaller scale to ensure entire image fits
+			minScale = Math.max(0.1, Math.min(scaleToFitWidth, scaleToFitHeight));
+		}
+		
+		const newScale = newScaleTmp < minScale ? minScale : newScaleTmp;
 		const rect = canvas.getBoundingClientRect();
 		const mouseX = event.clientX - rect.left;
 		const mouseY = event.clientY - rect.top;
@@ -463,6 +473,10 @@
 		canvasWindow.offsetX = mouseX - worldX * newScale;
 		canvasWindow.offsetY = mouseY - worldY * newScale;
 		canvasWindow.scale = newScale;
+		
+		// Clamp offsets to keep image properly aligned
+		canvasWindow.clampOffsets();
+		
 		draw();
 	}
 

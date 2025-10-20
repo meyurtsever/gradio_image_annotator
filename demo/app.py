@@ -28,7 +28,8 @@ example_annotation = {
 
 # Example with high-resolution image to test scrollable functionality
 high_res_annotation = {
-    "image": "https://images.unsplash.com/photo-1559827260-dc66d52bef19?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2940&h=1960",  # High resolution image
+    #"image": "https://images.unsplash.com/photo-1559827260-dc66d52bef19?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2940&h=1960",  # High resolution image
+    "image": "https://i.postimg.cc/R9xnJP03/836163430-slice-0002.png",  # High resolution image
     "boxes": []
 }
 
