@@ -57,20 +57,20 @@
 {#if visible}
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div 
-		class="modal-backdrop" 
+		class="annotator-shape-modal-backdrop" 
 		on:click={handleBackdropClick}
 		on:keydown={handleKeydown}
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="shape-settings-title"
 	>
-		<div class="modal-content">
-			<div class="modal-header">
+		<div class="annotator-shape-modal-content">
+			<div class="annotator-shape-modal-header">
 				<h3 id="shape-settings-title">Shape Settings</h3>
 				<button class="close-button" on:click={handleClose} aria-label="Close">×</button>
 			</div>
 			
-			<div class="modal-body">
+			<div class="annotator-shape-modal-body">
 				<div class="setting-group">
 					<label for="shape-opacity">Opacity:</label>
 					<div class="slider-controls">
@@ -164,7 +164,7 @@
 				</div>
 			</div>
 
-			<div class="modal-footer">
+			<div class="annotator-shape-modal-footer">
 				<button class="button secondary" on:click={handleClose}>Cancel</button>
 				<button class="button primary" on:click={() => { handleSettingsChange(); handleClose(); }}>Apply</button>
 			</div>
@@ -173,7 +173,7 @@
 {/if}
 
 <style>
-	.modal-backdrop {
+	.annotator-shape-modal-backdrop {
 		position: fixed;
 		top: 0;
 		left: 0;
@@ -186,7 +186,7 @@
 		z-index: 1000;
 	}
 
-	.modal-content {
+	.annotator-shape-modal-content {
 		background: var(--background-fill-primary);
 		border: 1px solid var(--border-color-primary);
 		border-radius: var(--radius-lg);
@@ -209,7 +209,7 @@
 		}
 	}
 
-	.modal-header {
+	.annotator-shape-modal-header {
 		padding: var(--spacing-lg);
 		border-bottom: 1px solid var(--border-color-primary);
 		display: flex;
@@ -217,7 +217,7 @@
 		align-items: center;
 	}
 
-	.modal-header h3 {
+	.annotator-shape-modal-header h3 {
 		margin: 0;
 		font-size: var(--text-lg);
 		font-weight: var(--weight-semibold);
@@ -244,7 +244,7 @@
 		color: var(--body-text-color);
 	}
 
-	.modal-body {
+	.annotator-shape-modal-body {
 		padding: var(--spacing-lg);
 		max-height: 60vh;
 		overflow-y: auto;
@@ -358,7 +358,7 @@
 		min-width: 40px;
 	}
 
-	.modal-footer {
+	.annotator-shape-modal-footer {
 		padding: var(--spacing-lg);
 		border-top: 1px solid var(--border-color-primary);
 		display: flex;

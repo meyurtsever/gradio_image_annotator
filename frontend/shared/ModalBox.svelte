@@ -79,8 +79,8 @@
 
 </script>
 
-<div class="modal" id="model-box-edit">
-    <div class="modal-container">
+<div class="annotator-modal" id="model-box-edit">
+    <div class="annotator-modal-container">
         <span class="model-content">
             {#if !showRemove}
             <div style="margin-right: 8px;">
@@ -155,7 +155,7 @@
 </div>
 
 <style>
-    .modal {
+    .annotator-modal {
         position: fixed;
         left: 0;
         top: 0;
@@ -166,7 +166,7 @@
         backdrop-filter: blur(4px);
     }
 
-    .modal-container {
+    .annotator-modal-container {
         border-style: solid;
         border-width: var(--block-border-width);
         border-color: var(--block-border-color);

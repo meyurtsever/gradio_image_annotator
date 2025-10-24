@@ -42,20 +42,20 @@
 {#if visible}
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div 
-		class="modal-backdrop" 
+		class="annotator-eraser-modal-backdrop" 
 		on:click={handleBackdropClick}
 		on:keydown={handleKeydown}
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="eraser-settings-title"
 	>
-		<div class="modal-content">
-			<div class="modal-header">
+		<div class="annotator-eraser-modal-content">
+			<div class="annotator-eraser-modal-header">
 				<h3 id="eraser-settings-title">Eraser Settings</h3>
 				<button class="close-button" on:click={handleClose} aria-label="Close">×</button>
 			</div>
 			
-			<div class="modal-body">
+			<div class="annotator-eraser-modal-body">
 				<div class="setting-group">
 					<label for="eraser-size">Eraser Size:</label>
 					<div class="size-controls">
@@ -87,7 +87,7 @@
 				</div>
 			</div>
 
-			<div class="modal-footer">
+			<div class="annotator-eraser-modal-footer">
 				<button class="button secondary" on:click={handleClose}>Cancel</button>
 				<button class="button primary" on:click={() => { handleSizeChange(); handleClose(); }}>Apply</button>
 			</div>
@@ -96,7 +96,7 @@
 {/if}
 
 <style>
-	.modal-backdrop {
+	.annotator-eraser-modal-backdrop {
 		position: fixed;
 		top: 0;
 		left: 0;
@@ -109,7 +109,7 @@
 		z-index: 1000;
 	}
 
-	.modal-content {
+	.annotator-eraser-modal-content {
 		background: var(--background-fill-primary);
 		border: 1px solid var(--border-color-primary);
 		border-radius: var(--radius-lg);
@@ -132,7 +132,7 @@
 		}
 	}
 
-	.modal-header {
+	.annotator-eraser-modal-header {
 		padding: var(--spacing-lg);
 		border-bottom: 1px solid var(--border-color-primary);
 		display: flex;
@@ -140,7 +140,7 @@
 		align-items: center;
 	}
 
-	.modal-header h3 {
+	.annotator-eraser-modal-header h3 {
 		margin: 0;
 		font-size: var(--text-lg);
 		font-weight: var(--weight-semibold);
@@ -167,7 +167,7 @@
 		color: var(--body-text-color);
 	}
 
-	.modal-body {
+	.annotator-eraser-modal-body {
 		padding: var(--spacing-lg);
 	}
 
@@ -258,7 +258,7 @@
 		font-weight: var(--weight-medium);
 	}
 
-	.modal-footer {
+	.annotator-eraser-modal-footer {
 		padding: var(--spacing-lg);
 		border-top: 1px solid var(--border-color-primary);
 		display: flex;
