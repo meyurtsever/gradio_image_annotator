@@ -46,6 +46,7 @@
 	const dispatch = createEventDispatcher<{
 		change: undefined;
 		select: { coordinates: [number, number] };
+		tool_selected: { tool: string; timestamp: number };
 	}>();
 
 </script>
@@ -54,6 +55,7 @@
 	bind:value
 	on:change={() => dispatch("change")}
 	on:select={(e) => dispatch("select", e.detail)}
+	on:tool_selected={(e) => dispatch("tool_selected", e.detail)}
 	{interactive}
 	boxAlpha={boxesAlpha}
 	choices={labelList}

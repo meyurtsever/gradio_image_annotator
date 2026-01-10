@@ -54,6 +54,7 @@ class image_annotator(Component):
         Events.change,
         Events.upload,
         Events.select,
+        "tool_selected",
     ]
 
     data_model = AnnotatedImageData

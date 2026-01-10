@@ -154,6 +154,7 @@
 	const dispatch = createEventDispatcher<{
 		change: undefined;
 		select: { coordinates: [number, number] };
+		tool_selected: { tool: string; timestamp: number };
 	}>();
 
 	function colorHexToRGB(hex: string) {
@@ -1348,12 +1349,16 @@
 		canvas.style.cursor = "crosshair";
 		// Reset polygon state when switching modes
 		currentPolygon = null;
+		// Dispatch tool selection event
+		dispatch("tool_selected", { tool: "box", timestamp: Date.now() });
 	}
 	function setFreehandMode() {
 		mode = Mode.freehand;
 		canvas.style.cursor = "crosshair";
 		// Reset polygon state when switching modes
 		currentPolygon = null;
+		// Dispatch tool selection event
+		dispatch("tool_selected", { tool: "freehand", timestamp: Date.now() });
 	}
 
 	function setCircleMode() {
@@ -1361,6 +1366,8 @@
 		canvas.style.cursor = "crosshair";
 		// Reset polygon state when switching modes
 		currentPolygon = null;
+		// Dispatch tool selection event
+		dispatch("tool_selected", { tool: "circle", timestamp: Date.now() });
 	}
 
 	function setPolygonMode() {
@@ -1368,6 +1375,8 @@
 		canvas.style.cursor = "crosshair";
 		// Don't reset currentPolygon when switching TO polygon mode
 		// Only reset when switching away from it
+		// Dispatch tool selection event
+		dispatch("tool_selected", { tool: "polygon", timestamp: Date.now() });
 	}
 
 	function setEraseMode() {
@@ -1375,6 +1384,8 @@
 		canvas.style.cursor = "crosshair";
 		// Reset polygon state when switching modes
 		currentPolygon = null;
+		// Dispatch tool selection event
+		dispatch("tool_selected", { tool: "eraser", timestamp: Date.now() });
 	}
 
 	function setDragMode() {
@@ -1382,6 +1393,8 @@
 		canvas.style.cursor = "default";
 		// Reset polygon state when switching modes
 		currentPolygon = null;
+		// Dispatch tool selection event
+		dispatch("tool_selected", { tool: "pan", timestamp: Date.now() });
 	}
 
 	function onBoxFinishCreation() {

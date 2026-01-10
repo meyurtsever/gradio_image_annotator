@@ -79,6 +79,7 @@
 		drag: boolean;
 		upload: undefined;
 		select: SelectData;
+		tool_selected: { tool: string; timestamp: number };
 	}>();
 
 	let dragging = false;
@@ -185,6 +186,7 @@
 					bind:value
 					on:change={() => dispatch("change")}
 					on:select={(e) => dispatch("select", { index: null, value: e.detail.coordinates })}
+					on:tool_selected={(e) => dispatch("tool_selected", e.detail)}
 					{height}
 					{width}
 					{boxesAlpha}

@@ -60,6 +60,7 @@
 		clear: never;
 		select: SelectData;
 		share: ShareData;
+		tool_selected: { tool: string; timestamp: number };
 	}>;
 
 	let dragging: boolean;
@@ -110,6 +111,7 @@
 		on:drag={({ detail }) => (dragging = detail)}
 		on:upload={() => gradio.dispatch("upload")}
 		on:select={({ detail }) => gradio.dispatch("select", detail)}
+		on:tool_selected={({ detail }) => gradio.dispatch("tool_selected", detail)}
 		on:share={({ detail }) => gradio.dispatch("share", detail)}
 		on:error={({ detail }) => {
 			loading_status = loading_status || {};
